@@ -1,1 +1,3 @@
-# Three JS Vite Boilerplate
+# Three Camera Controller
+
+Custom and modular Three JS Camera Controller
