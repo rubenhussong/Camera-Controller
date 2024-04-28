@@ -1,10 +1,10 @@
 import { PerspectiveCamera, Quaternion, Vector3, Vector3Like } from "three";
 import { EPSILON } from "./mathUtils";
 import { InteractionHandler } from "./InteractionHandler";
-import { OrbitState } from "./camera-states/OrbitState";
+import { OrbitState } from "./states/OrbitState";
 import { CameraSaveState, CameraState, UniformState } from "./CameraState";
-import { IsotropicState } from "./camera-states/IsotropicState";
-import { GroundedState } from "./camera-states/GroundedState";
+import { IsotropicState } from "./states/IsotropicState";
+import { GroundedState } from "./states/GroundedState";
 
 // TODO: Seperate LookAt from OrbitCenter
 // TODO: Check if there is still an occasional jump on camera animation start after a lot of panning and rotating

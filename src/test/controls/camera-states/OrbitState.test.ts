@@ -1,5 +1,5 @@
 import { expect, describe, it } from "vitest";
-import { OrbitState } from "../../../js/camera-controls/camera-states/OrbitState";
+import { OrbitState } from "../../../js/controls/states/OrbitState";
 import { PerspectiveCamera } from "three";
 
 describe("setCamera", async () => {

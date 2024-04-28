@@ -1,10 +1,7 @@
 import * as THREE from "three";
 import Stats from "three/addons/libs/stats.module.js";
-import {
-  CONTROL_MODE,
-  OrbitXController,
-} from "./camera-controls/OrbitXControls";
-import { EPSILON } from "./camera-controls/mathUtils";
+import { CONTROL_MODE, OrbitXController } from "./controls/OrbitXControls";
+import { EPSILON } from "./controls/mathUtils";
 
 // ==================== M A I N
 const stats = createStats();
