@@ -13,8 +13,11 @@ const ACTION = {
 export abstract class InteractionHandler {
   private domElement: HTMLElement;
 
+  protected enabled: boolean;
+
   constructor(domElement: HTMLElement) {
     this.domElement = domElement;
+    this.enabled = false;
   }
 
   // ==================== A P I
@@ -26,9 +29,11 @@ export abstract class InteractionHandler {
   enable = () => {
     this.onEnable && this.onEnable();
     this.startListeningToUser();
+    this.enabled = true;
   };
 
   disable = () => {
+    this.enabled = false;
     this.stopListeningToUser();
     this.onDisable && this.onDisable();
   };

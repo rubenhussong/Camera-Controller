@@ -3,6 +3,12 @@ import { clamp } from "three/src/math/MathUtils.js";
 
 export const EPSILON = 1e-5;
 
+export const AXIS = {
+  X: new Vector3(1, 0, 0),
+  Y: new Vector3(0, 1, 0),
+  Z: new Vector3(0, 0, 1),
+};
+
 export const approxZero = (v: number, error: number = EPSILON) => {
   return Math.abs(v) <= error;
 };
