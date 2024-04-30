@@ -1,14 +1,14 @@
 import * as THREE from "three";
 import Stats from "three/addons/libs/stats.module.js";
-import { MODE, OrbitXControls } from "./controls/OrbitXControls";
-import { EPSILON } from "./controls/mathUtils";
+import { CONTROL_MODE, OrbitXControls } from "./controls/OrbitXControls";
+import { EPSILON } from "./controls/utils/mathUtils";
 
 // ==================== M A I N
 const stats = createStats();
 const renderer = createRenderer();
 
 const camera = createPerspectiveCamera(0, 0, 10);
-const controls = createControls(camera, MODE.GROUNDED);
+const controls = createControls(camera, CONTROL_MODE.GROUNDED);
 controls.setOrbitCenter({ x: 0, y: 0, z: 0 });
 controls.setZoomLimits(10, 15);
 //controls.lookAt({ x: 0, y: 0, z: 0 });
@@ -48,7 +48,10 @@ function createStats(parent = document.body) {
 }
 
 // ==================== C O N T R O L S
-function createControls(camera: THREE.PerspectiveCamera, mode = MODE.ORBIT) {
+function createControls(
+  camera: THREE.PerspectiveCamera,
+  mode = CONTROL_MODE.ORBIT
+) {
   const controls = new OrbitXControls(renderer.domElement, camera, mode);
   controls.setCamera(camera);
   controls.enable();

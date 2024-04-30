@@ -10,10 +10,12 @@ import {
   approxEqualVec3,
   approxParallel,
   approxZero,
+} from "../utils/mathUtils";
+import {
   smoothDamp,
   smoothDampQuat,
   smoothDampVec3,
-} from "../mathUtils";
+} from "../utils/interpolationUtils";
 import { DEG2RAD, clamp, euclideanModulo } from "three/src/math/MathUtils.js";
 
 export class IsotropicAnimator extends StateAnimator<IsotropicState> {

@@ -13,9 +13,8 @@ import {
   approxEqual,
   approxEqualVec3,
   approxZeroVec3,
-  smoothDamp,
-  smoothDampVec3,
-} from "../mathUtils";
+} from "../utils/mathUtils";
+import { smoothDamp, smoothDampVec3 } from "../utils/interpolationUtils";
 import { DEG2RAD, clamp, euclideanModulo } from "three/src/math/MathUtils.js";
 
 export class OrbitAnimator extends StateAnimator<OrbitState> {

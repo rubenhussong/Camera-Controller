@@ -18,10 +18,12 @@ import {
   approxParallel,
   approxZero,
   approxZeroVec3,
+} from "../utils/mathUtils";
+import {
   smoothDamp,
   smoothDampQuat,
   smoothDampVec3,
-} from "../mathUtils";
+} from "../utils/interpolationUtils";
 import { clamp, euclideanModulo } from "three/src/math/MathUtils.js";
 
 export class GroundedAnimator extends StateAnimator<GroundedState> {

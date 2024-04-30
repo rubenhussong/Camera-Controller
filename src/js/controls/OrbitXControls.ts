@@ -1,72 +1,99 @@
 import { PerspectiveCamera, Quaternion, Vector3, Vector3Like } from "three";
-import { EPSILON } from "./mathUtils";
+import { EPSILON } from "./utils/mathUtils";
 import { InteractionHandler } from "./InteractionHandler";
 import { CameraSaveState, StateAnimator } from "./StateAnimator";
 import { IsotropicAnimator } from "./animators/IsotropicAnimator";
 import { GroundedAnimator } from "./animators/GroundedAnimator";
 import { OrbitAnimator } from "./animators/OrbitAnimator";
 
-// TODO: Seperate LookAt from OrbitCenter
-// TODO: Check if there is still an occasional jump on camera animation start after a lot of panning and rotating
-
-export const MODE = {
-  ISOTROPIC: 0,
-  GROUNDED: 1,
-  ORBIT: 2,
+export type ControlMode = "isotropic" | "grounded" | "orbit";
+export const CONTROL_MODE = {
+  ISOTROPIC: "isotropic" as ControlMode,
+  GROUNDED: "grounded" as ControlMode,
+  ORBIT: "orbit" as ControlMode,
+};
+type ModeSetting = {
+  isotropic: number;
+  grounded: number;
+  orbit: number;
 };
 
 export class OrbitXControls extends InteractionHandler {
   // Only transform camera (position, rotation, scale, up) while controller is disabled.
   private camera: PerspectiveCamera;
+  private mode: ControlMode;
   private stateAnimator: StateAnimator<any>;
 
-  private mode: number;
   private defaultState: CameraSaveState;
 
   private minDistance: number = EPSILON;
   private maxDistance: number = Infinity;
 
-  // ==================== A P I
-
-  // Isotropic, Grounded, Orbit
-  private dollySpeed = [0.3, 0.1, 0.3];
-  private rotateSpeed = [2, 0.5, 2];
-  private panSpeed = [1, 0.1 * Math.PI, 1];
-
-  private minDollyStep = 5e-3;
-
-  private smoothTime = [0.1, 0.15, 0.1]; // Approx. time in seconds to reach end state in update function
-
-  needsUpdate = false;
-
   constructor(
     domElement: HTMLElement,
     camera: PerspectiveCamera,
-    controlMode = MODE.ORBIT
+    mode: ControlMode = CONTROL_MODE.ORBIT
   ) {
     super(domElement);
     this.camera = camera;
-    this.mode = Math.min(controlMode, MODE.ORBIT);
-    switch (this.mode) {
-      case MODE.ISOTROPIC: {
-        this.stateAnimator = new IsotropicAnimator(camera);
-        break;
-      }
-      case MODE.GROUNDED: {
-        this.stateAnimator = new GroundedAnimator(camera);
-        break;
-      }
-      default: {
-        this.stateAnimator = new OrbitAnimator(camera);
-      }
-    }
+    this.mode = mode;
+    this.stateAnimator = this.getAnimatorFromMode(mode);
     this.defaultState = new CameraSaveState();
     this.needsUpdate = true;
   }
 
-  // ==================== A B S T R A C T S
+  // ==================== S E T T I N G S
 
-  // ========== E N A B L E  &  D I S A B L E
+  // Isotropic, Grounded, Orbit
+  dollySpeed: ModeSetting = {
+    isotropic: 0.3,
+    grounded: 0.1,
+    orbit: 0.3,
+  };
+  rotateSpeed: ModeSetting = {
+    isotropic: 2,
+    grounded: 0.5,
+    orbit: 2,
+  };
+  panSpeed: ModeSetting = {
+    isotropic: 1,
+    grounded: 0.1 * Math.PI,
+    orbit: 1,
+  };
+
+  minDollyStep = 5e-3;
+
+  // Approx. time in seconds to reach end state in update function
+  smoothTime: ModeSetting = {
+    isotropic: 0.1,
+    grounded: 0.15,
+    orbit: 0.1,
+  };
+
+  needsUpdate = false;
+
+  // ==================== M O D E
+
+  setMode = (mode: ControlMode) => {
+    if (this.mode === mode) return;
+    this.mode = mode;
+    const saveState = this.stateAnimator.saveState();
+    this.stateAnimator = this.getAnimatorFromMode(mode);
+    this.stateAnimator.loadState(saveState);
+    this.internalUpdate();
+  };
+
+  private getAnimatorFromMode = (mode: ControlMode): StateAnimator<any> => {
+    if (mode === CONTROL_MODE.ISOTROPIC) {
+      return new IsotropicAnimator(this.camera);
+    }
+    if (mode === CONTROL_MODE.GROUNDED) {
+      return new GroundedAnimator(this.camera);
+    }
+    return new OrbitAnimator(this.camera);
+  };
+
+  // ==================== E N A B L E  &  D I S A B L E
 
   // If camera has been moved manually while disabled, it likely gets a new orbitCenter on reenable
   protected onEnable = (transition = false) => {
@@ -78,44 +105,18 @@ export class OrbitXControls extends InteractionHandler {
     this.stateAnimator.discardEnd();
   };
 
-  // ========== T R A N S F O R M
+  // ==================== S E T T E R
 
-  protected rotate = (deltaX: number, deltaY: number) => {
-    const rotateScale = Math.PI * this.rotateSpeed[this.mode];
-    this.stateAnimator.rotateUp(deltaY * rotateScale);
-    this.stateAnimator.rotateLeft(-deltaX * rotateScale);
-    this.needsUpdate = true;
+  setZoomLimits = (min: number, max: number, transition = false) => {
+    if (min < EPSILON || max < EPSILON)
+      throw new Error("Zoom limits must be positive.");
+    if (min > max)
+      throw new Error("Minimum zoom must not be smaller than max zoom.");
+    this.minDistance = min;
+    this.maxDistance = max;
+    this.stateAnimator.clampDistance(min, max);
+    this.internalUpdate(transition);
   };
-
-  protected dolly = (direction: number) => {
-    this.stateAnimator.dolly(
-      Math.pow(1 + direction * 0.05, this.dollySpeed[this.mode]),
-      this.minDollyStep,
-      this.minDistance,
-      this.maxDistance
-    );
-    this.needsUpdate = true;
-  };
-
-  protected pan = (deltaX: number, deltaY: number) => {
-    const fov = this.camera.getEffectiveFOV();
-    const panScale = this.panSpeed[this.mode];
-    this.stateAnimator.panUp(-deltaY * panScale, fov);
-    this.stateAnimator.panLeft(deltaX * panScale, fov);
-    this.needsUpdate = true;
-  };
-
-  // ==================== I N T E R N A L   M E T H O D S
-
-  // Fast forward to final state on default
-  private internalUpdate = (transition = false) => {
-    if (!transition) this.stateAnimator.jumpToEnd();
-    this.needsUpdate = true;
-  };
-
-  // ==================== A P I   M E T H O D S
-
-  // ========== S E T T E R
 
   setCamera = (camera: PerspectiveCamera) => {
     this.camera = camera;
@@ -154,41 +155,6 @@ export class OrbitXControls extends InteractionHandler {
     this.internalUpdate(transition);
   };
 
-  setZoomLimits = (min: number, max: number, transition = false) => {
-    if (min < EPSILON || max < EPSILON)
-      throw new Error("Zoom limits must be positive.");
-    if (min > max)
-      throw new Error("Minimum zoom must not be smaller than max zoom.");
-    this.minDistance = min;
-    this.maxDistance = max;
-    this.stateAnimator.clampDistance(min, max);
-    this.internalUpdate(transition);
-  };
-
-  // ==================== M O D E
-
-  setMode = (mode: number) => {
-    mode = Math.min(mode, MODE.ORBIT);
-    if (this.mode === mode) return;
-    this.mode = mode;
-    const saveState = this.stateAnimator.saveState();
-    switch (this.mode) {
-      case MODE.ISOTROPIC: {
-        this.stateAnimator = new IsotropicAnimator();
-        break;
-      }
-      case MODE.GROUNDED: {
-        this.stateAnimator = new GroundedAnimator();
-        break;
-      }
-      default: {
-        this.stateAnimator = new OrbitAnimator();
-      }
-    }
-    this.stateAnimator.loadState(saveState);
-    this.internalUpdate();
-  };
-
   // ========== S T A T E   H A N D L I N G
 
   setDefaultState = (
@@ -204,6 +170,49 @@ export class OrbitXControls extends InteractionHandler {
   loadState = (state: CameraSaveState, transition = false) => {
     this.stateAnimator.loadState(state);
     this.internalUpdate(transition);
+  };
+
+  // ==================== T R A N S F O R M
+
+  protected rotate = (deltaX: number, deltaY: number) => {
+    const rotateScale = Math.PI * this.rotateSpeed[this.mode];
+    this.stateAnimator.rotateUp(deltaY * rotateScale);
+    this.stateAnimator.rotateLeft(-deltaX * rotateScale);
+    this.needsUpdate = true;
+  };
+
+  protected dolly = (direction: number) => {
+    this.stateAnimator.dolly(
+      Math.pow(1 + direction * 0.05, this.dollySpeed[this.mode]),
+      this.minDollyStep,
+      this.minDistance,
+      this.maxDistance
+    );
+    this.needsUpdate = true;
+  };
+
+  protected pan = (deltaX: number, deltaY: number) => {
+    const fov = this.camera.getEffectiveFOV();
+    const panScale = this.panSpeed[this.mode];
+    this.stateAnimator.panUp(-deltaY * panScale, fov);
+    this.stateAnimator.panLeft(deltaX * panScale, fov);
+    this.needsUpdate = true;
+  };
+
+  // ==================== U P D A T E
+
+  update = (delta: number) => {
+    if (!this.needsUpdate) return false;
+    const smoothTime = this.smoothTime[this.mode];
+    this.needsUpdate = !this.stateAnimator.update(smoothTime, delta);
+    this.stateAnimator.applyToCamera(this.camera);
+    return true;
+  };
+
+  // Fast forward to final state on default
+  private internalUpdate = (transition = false) => {
+    if (!transition) this.stateAnimator.jumpToEnd();
+    this.needsUpdate = true;
   };
 
   // ========== A N I M A T I O N
@@ -277,16 +286,6 @@ export class OrbitXControls extends InteractionHandler {
   getLocalTransformation = (c: PerspectiveCamera) => {
     // TODO: Convert
     return new CameraSaveState();
-  };
-
-  // ========== U P D A T E
-
-  update = (delta: number) => {
-    if (!this.needsUpdate) return false;
-    const smoothTime = this.smoothTime[this.mode];
-    this.needsUpdate = !this.stateAnimator.update(smoothTime, delta);
-    this.stateAnimator.applyToCamera(this.camera);
-    return true;
   };
 }
 

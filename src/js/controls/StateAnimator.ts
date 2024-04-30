@@ -1,11 +1,11 @@
 import { PerspectiveCamera, Quaternion, Vector3, Vector3Like } from "three";
-import { AXIS } from "./mathUtils";
+import { AXIS } from "./utils/mathUtils";
 
 export abstract class StateAnimator<T extends State> {
   protected abstract now: T;
   protected abstract end: T;
 
-  // ==================== C A M E R A
+  // ==================== A P P L Y
   applyToCamera = (c: PerspectiveCamera) => {
     c.up.copy(this.now.up);
     c.position.copy(this.now.position);
@@ -22,7 +22,7 @@ export abstract class StateAnimator<T extends State> {
   saveState = () => this.end.saveState();
   loadState = (state: CameraSaveState) => this.end.loadState(state);
 
-  // ==================== A P I   T R A N S F O R M
+  // ==================== T R A N S F O R M
   abstract dolly: (
     scale: number,
     minStep?: number,
@@ -37,7 +37,7 @@ export abstract class StateAnimator<T extends State> {
   abstract panUp: (delta: number, fov: number) => void;
   abstract panLeft: (delta: number, fov: number) => void;
 
-  // ==================== A P I   U P D A T E
+  // ==================== U P D A T E
   abstract jumpToEnd: () => void;
   abstract discardEnd: () => void;
   abstract update: (smoothTime: number, deltaTime: number) => boolean;
