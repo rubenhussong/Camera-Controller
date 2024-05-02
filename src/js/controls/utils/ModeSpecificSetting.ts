@@ -1,4 +1,4 @@
-import { ControlMode } from "./types/ControlMode";
+import { ControlMode } from "../types/ControlMode";
 
 interface OnChangeMethods<T> {
   beforeChange?(v: T, m: ControlMode): void;

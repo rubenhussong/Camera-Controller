@@ -1,12 +1,12 @@
 import { PerspectiveCamera, Vector3Like } from "three";
 import { InteractionHandler } from "./InteractionHandler";
 import { ControlMode } from "./types/ControlMode";
-import { ModeSpecificSetting } from "./ModeSpecificSetting";
+import { ModeSpecificSetting } from "./utils/ModeSpecificSetting";
 import { ControlStateInterpolator } from "./ControlStateInterpolator";
 import { IsotropicInterpolator } from "./interpolators/IsotropicInterpolator";
 import { GroundedInterpolator } from "./interpolators/GroundedInterpolator";
 import { OrbitInterpolator } from "./interpolators/OrbitInterpolator";
-import { CameraSaveState } from "./SaveState";
+import { CameraSaveState } from "./utils/SaveState";
 
 export class OrbitXControls extends InteractionHandler {
   private camera: PerspectiveCamera;

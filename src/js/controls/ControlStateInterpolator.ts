@@ -1,6 +1,6 @@
 import { Object3D, Quaternion, Vector3, Vector3Like } from "three";
 import { AXIS } from "./utils/mathUtils";
-import { CameraSaveState } from "./SaveState";
+import { CameraSaveState } from "./utils/SaveState";
 
 /**
  * Has two ControlStates now and end.

@@ -16,7 +16,7 @@ import {
 } from "../utils/mathUtils";
 import { SmoothDamper } from "../utils/SmoothDamper";
 import { DEG2RAD, clamp, euclideanModulo } from "three/src/math/MathUtils.js";
-import { CameraSaveState } from "../SaveState";
+import { CameraSaveState } from "../utils/SaveState";
 
 export class IsotropicInterpolator extends ControlStateInterpolator<IsotropicState> {
   protected now = new IsotropicState();

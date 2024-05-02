@@ -24,7 +24,7 @@ import {
 } from "../utils/mathUtils";
 import { SmoothDamper } from "../utils/SmoothDamper";
 import { clamp, euclideanModulo } from "three/src/math/MathUtils.js";
-import { CameraSaveState } from "../SaveState";
+import { CameraSaveState } from "../utils/SaveState";
 
 export class GroundedInterpolator extends ControlStateInterpolator<GroundedState> {
   protected now = new GroundedState();
