@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import Stats from "three/addons/libs/stats.module.js";
-import { CONTROL_MODE, OrbitXControls } from "./controls/OrbitXControls";
+import { OrbitXControls } from "./controls/OrbitXControls";
 import { EPSILON } from "./controls/utils/mathUtils";
 
 // ==================== M A I N
@@ -8,13 +8,12 @@ const stats = createStats();
 const renderer = createRenderer();
 
 const camera = createPerspectiveCamera(0, 0, 10);
-const controls = createControls(camera, CONTROL_MODE.GROUNDED);
+const controls = new OrbitXControls(renderer.domElement, camera, "grounded");
 controls.setOrbitCenter({ x: 0, y: 0, z: 0 });
-controls.setZoomLimits(10, 15);
-//controls.lookAt({ x: 0, y: 0, z: 0 });
+controls.minDistance.grounded = 10;
+controls.maxDistance.grounded = 15;
+controls.lookAt({ x: 0, y: 100, z: 0 });
 // controls.setPosition({ x: 10, y: 10, z: 0 });
-
-//controls.setOrbitCenter({ x: 0, y: 0, z: 0 });
 // controls.loadState({
 //   orbitCenter: new THREE.Vector3(0, 0, 0),
 //   relativePosition: new THREE.Vector3(0, 0, 10),
@@ -45,17 +44,6 @@ function createStats(parent = document.body) {
   const stats = new Stats();
   parent.appendChild(stats.dom);
   return stats;
-}
-
-// ==================== C O N T R O L S
-function createControls(
-  camera: THREE.PerspectiveCamera,
-  mode = CONTROL_MODE.ORBIT
-) {
-  const controls = new OrbitXControls(renderer.domElement, camera, mode);
-  controls.setCamera(camera);
-  controls.enable();
-  return controls;
 }
 
 // ==================== C A M E R A
@@ -99,7 +87,7 @@ function addSphere(
 ) {
   const sphere = new THREE.Mesh(
     new THREE.IcosahedronGeometry(radius, detail),
-    new THREE.MeshLambertMaterial({ color: color, wireframe: true })
+    new THREE.MeshLambertMaterial({ color: color })
   );
   sphere.position.set(x, y, z);
   scene.add(sphere);

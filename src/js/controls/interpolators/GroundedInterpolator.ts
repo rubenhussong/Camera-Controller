@@ -4,9 +4,12 @@ import {
   Vector3Like,
   Matrix4,
   Euler,
-  PerspectiveCamera,
+  Object3D,
 } from "three";
-import { CameraSaveState, State, StateAnimator } from "../StateAnimator";
+import {
+  ControlState,
+  ControlStateInterpolator,
+} from "../ControlStateInterpolator";
 import {
   AXIS,
   EPSILON,
@@ -19,14 +22,11 @@ import {
   approxZero,
   approxZeroVec3,
 } from "../utils/mathUtils";
-import {
-  smoothDamp,
-  smoothDampQuat,
-  smoothDampVec3,
-} from "../utils/interpolationUtils";
+import { SmoothDamper } from "../utils/SmoothDamper";
 import { clamp, euclideanModulo } from "three/src/math/MathUtils.js";
+import { CameraSaveState } from "../SaveState";
 
-export class GroundedAnimator extends StateAnimator<GroundedState> {
+export class GroundedInterpolator extends ControlStateInterpolator<GroundedState> {
   protected now = new GroundedState();
   protected end = new GroundedState();
 
@@ -40,9 +40,9 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
   // ===== Helper Variables
   private reuseQuat = new Quaternion();
 
-  constructor(camera?: PerspectiveCamera, orbitCenter?: Vector3Like) {
+  constructor(camera?: Object3D, orbitCenter?: Vector3Like) {
     super();
-    camera && this.setFromCamera(camera);
+    camera && this.setFromObject(camera);
     orbitCenter && this.setOrbitCenter(orbitCenter);
     this.jumpToEnd();
   }
@@ -51,7 +51,7 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
 
   // Calculates positionQuat from camera position relatively to the orbitCenter.
   // Sets polarAngle as angle between relative camera direction and view direction.
-  setFromCamera = (c: PerspectiveCamera) => {
+  setFromObject = (c: Object3D) => {
     this.end.distance = this.end.orbitCenter.distanceTo(c.position);
     if (approxZero(this.end.distance)) {
       this.end.offsetQuat.copy(c.quaternion);
@@ -142,13 +142,13 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
 
   // Returns if more updates are needed to reach the end state
   update = (smoothTime: number, deltaTime: number) => {
-    let reachedEnd = true;
+    let needsUpdate = false;
     // OrbitCenter
     if (approxEqualVec3(this.now.orbitCenter, this.end.orbitCenter)) {
       this.velocityOrbitCenter.set(0, 0, 0);
       this.now.orbitCenter.copy(this.end.orbitCenter);
     } else {
-      smoothDampVec3(
+      SmoothDamper.dampVec3(
         this.now.orbitCenter,
         this.end.orbitCenter,
         this.velocityOrbitCenter,
@@ -157,14 +157,14 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
         deltaTime,
         this.now.orbitCenter
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Quaternion
     if (approxEqualQuat(this.now.offsetQuat, this.end.offsetQuat)) {
       this.velocityQuaternion.set(0, 0, 0, 0);
       this.now.offsetQuat.copy(this.end.offsetQuat);
     } else {
-      smoothDampQuat(
+      SmoothDamper.dampQuat(
         this.now.offsetQuat,
         this.end.offsetQuat,
         this.velocityQuaternion,
@@ -172,14 +172,14 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
         deltaTime,
         this.now.offsetQuat
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Look up angle
     if (approxEqual(this.now.lookUpAngle, this.end.lookUpAngle)) {
       this.velocityLookUpAngle.value = 0;
       this.now.lookUpAngle = this.end.lookUpAngle;
     } else {
-      this.now.lookUpAngle = smoothDamp(
+      this.now.lookUpAngle = SmoothDamper.damp(
         this.now.lookUpAngle,
         this.end.lookUpAngle,
         this.velocityLookUpAngle,
@@ -187,14 +187,14 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
         Infinity,
         deltaTime
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Distance
     if (approxEqual(this.now.distance, this.end.distance)) {
       this.velocityDistance.value = 0;
       this.now.distance = this.end.distance;
     } else {
-      this.now.distance = smoothDamp(
+      this.now.distance = SmoothDamper.damp(
         this.now.distance,
         this.end.distance,
         this.velocityDistance,
@@ -202,14 +202,14 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
         Infinity,
         deltaTime
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Translation
     if (approxZeroVec3(this.end.translation, EPSILON / 100)) {
       this.velocityTranslation.set(0, 0, 0);
       this.now.translation.copy(this.end.translation);
     } else {
-      const delta = smoothDampVec3(
+      const delta = SmoothDamper.dampVec3(
         this.now.translation,
         this.end.translation,
         this.velocityTranslation,
@@ -220,14 +220,14 @@ export class GroundedAnimator extends StateAnimator<GroundedState> {
       );
       this.end.applyTranslation(delta); // Apply delta ...
       this.now.applyTranslation(delta); // ... to remove translation again.
-      reachedEnd = false;
+      needsUpdate = true;
     }
-    if (reachedEnd) this.discardEnd();
-    return reachedEnd;
+    if (!needsUpdate) this.discardEnd();
+    return needsUpdate;
   };
 }
 
-class GroundedState extends State {
+class GroundedState extends ControlState {
   offsetQuat = new Quaternion(); // Orientation from orbitCenter
   private _lookUpAngle = EPSILON; // Angle between view direction and down vector
   private _distance = 1;

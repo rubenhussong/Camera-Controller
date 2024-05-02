@@ -1,6 +1,9 @@
-import { Euler, Matrix4, PerspectiveCamera, Vector3Like } from "three";
+import { Euler, Matrix4, Object3D, Vector3Like } from "three";
 import { Vector3, Quaternion } from "three";
-import { CameraSaveState, State, StateAnimator } from "../StateAnimator";
+import {
+  ControlState,
+  ControlStateInterpolator,
+} from "../ControlStateInterpolator";
 import {
   AXIS,
   EPSILON,
@@ -11,14 +14,11 @@ import {
   approxParallel,
   approxZero,
 } from "../utils/mathUtils";
-import {
-  smoothDamp,
-  smoothDampQuat,
-  smoothDampVec3,
-} from "../utils/interpolationUtils";
+import { SmoothDamper } from "../utils/SmoothDamper";
 import { DEG2RAD, clamp, euclideanModulo } from "three/src/math/MathUtils.js";
+import { CameraSaveState } from "../SaveState";
 
-export class IsotropicAnimator extends StateAnimator<IsotropicState> {
+export class IsotropicInterpolator extends ControlStateInterpolator<IsotropicState> {
   protected now = new IsotropicState();
   protected end = new IsotropicState();
 
@@ -30,9 +30,9 @@ export class IsotropicAnimator extends StateAnimator<IsotropicState> {
   // ===== Helper Variables
   private reuseQuat = new Quaternion();
 
-  constructor(camera?: PerspectiveCamera, orbitCenter?: Vector3Like) {
+  constructor(camera?: Object3D, orbitCenter?: Vector3Like) {
     super();
-    camera && this.setFromCamera(camera);
+    camera && this.setFromObject(camera);
     orbitCenter && this.setOrbitCenter(orbitCenter);
     this.jumpToEnd();
   }
@@ -40,7 +40,7 @@ export class IsotropicAnimator extends StateAnimator<IsotropicState> {
   // ==================== S E T T E R
 
   // Updates orbitCenter to maintain camera position and orientation
-  setFromCamera = (c: PerspectiveCamera) => {
+  setFromObject = (c: Object3D) => {
     this.end.quaternion.copy(c.quaternion);
     this.end.orbitCenter.subVectors(c.position, this.end.offset);
   };
@@ -107,13 +107,13 @@ export class IsotropicAnimator extends StateAnimator<IsotropicState> {
 
   // Returns if more updates are needed to reach the end state
   update = (smoothTime: number, deltaTime: number) => {
-    let reachedEnd = true;
+    let needsUpdate = false;
     // OrbitCenter
     if (approxEqualVec3(this.now.orbitCenter, this.end.orbitCenter)) {
       this.velocityOrbitCenter.set(0, 0, 0);
       this.now.orbitCenter.copy(this.end.orbitCenter);
     } else {
-      smoothDampVec3(
+      SmoothDamper.dampVec3(
         this.now.orbitCenter,
         this.end.orbitCenter,
         this.velocityOrbitCenter,
@@ -122,14 +122,14 @@ export class IsotropicAnimator extends StateAnimator<IsotropicState> {
         deltaTime,
         this.now.orbitCenter
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Quaternion
     if (approxEqualQuat(this.now.quaternion, this.end.quaternion)) {
       this.velocityQuaternion.set(0, 0, 0, 0);
       this.now.quaternion.copy(this.end.quaternion);
     } else {
-      smoothDampQuat(
+      SmoothDamper.dampQuat(
         this.now.quaternion,
         this.end.quaternion,
         this.velocityQuaternion,
@@ -137,14 +137,14 @@ export class IsotropicAnimator extends StateAnimator<IsotropicState> {
         deltaTime,
         this.now.quaternion
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Distance
     if (approxEqual(this.now.distance, this.end.distance)) {
       this.velocityDistance.value = 0;
       this.now.distance = this.end.distance;
     } else {
-      this.now.distance = smoothDamp(
+      this.now.distance = SmoothDamper.damp(
         this.now.distance,
         this.end.distance,
         this.velocityDistance,
@@ -152,14 +152,14 @@ export class IsotropicAnimator extends StateAnimator<IsotropicState> {
         Infinity,
         deltaTime
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
-    if (reachedEnd) this.discardEnd();
-    return reachedEnd;
+    if (!needsUpdate) this.discardEnd();
+    return needsUpdate;
   };
 }
 
-class IsotropicState extends State {
+class IsotropicState extends ControlState {
   quaternion = new Quaternion();
   private _distance = 1;
 

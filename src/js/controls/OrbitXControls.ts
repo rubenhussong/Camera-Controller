@@ -1,134 +1,153 @@
 import { PerspectiveCamera, Quaternion, Vector3, Vector3Like } from "three";
 import { EPSILON } from "./utils/mathUtils";
 import { InteractionHandler } from "./InteractionHandler";
-import { CameraSaveState, StateAnimator } from "./StateAnimator";
-import { IsotropicAnimator } from "./animators/IsotropicAnimator";
-import { GroundedAnimator } from "./animators/GroundedAnimator";
-import { OrbitAnimator } from "./animators/OrbitAnimator";
-
-export type ControlMode = "isotropic" | "grounded" | "orbit";
-export const CONTROL_MODE = {
-  ISOTROPIC: "isotropic" as ControlMode,
-  GROUNDED: "grounded" as ControlMode,
-  ORBIT: "orbit" as ControlMode,
-};
-type ModeSetting = {
-  isotropic: number;
-  grounded: number;
-  orbit: number;
-};
+import { ControlStateInterpolator } from "./ControlStateInterpolator";
+import { IsotropicInterpolator } from "./interpolators/IsotropicInterpolator";
+import { GroundedInterpolator } from "./interpolators/GroundedInterpolator";
+import { OrbitInterpolator } from "./interpolators/OrbitInterpolator";
+import { CameraSaveState } from "./SaveState";
+import { ControlMode } from "./types/ControlMode";
+import { ControlModeSetting } from "./ControlModeSetting";
 
 export class OrbitXControls extends InteractionHandler {
-  // Only transform camera (position, rotation, scale, up) while controller is disabled.
   private camera: PerspectiveCamera;
   private mode: ControlMode;
-  private stateAnimator: StateAnimator<any>;
+  private controlStateHandler: ControlStateInterpolator<any>;
 
   private defaultState: CameraSaveState;
-
-  private minDistance: number = EPSILON;
-  private maxDistance: number = Infinity;
 
   constructor(
     domElement: HTMLElement,
     camera: PerspectiveCamera,
-    mode: ControlMode = CONTROL_MODE.ORBIT
+    mode: ControlMode = "orbit"
   ) {
     super(domElement);
     this.camera = camera;
     this.mode = mode;
-    this.stateAnimator = this.getAnimatorFromMode(mode);
+    this.controlStateHandler = this.getAnimatorFromMode(mode);
     this.defaultState = new CameraSaveState();
     this.needsUpdate = true;
+    this.enable();
   }
 
   // ==================== S E T T I N G S
 
-  // Isotropic, Grounded, Orbit
-  dollySpeed: ModeSetting = {
+  needsUpdate = false;
+  minDollyStep = 5e-3;
+
+  dollySpeed = new ControlModeSetting<number>({
     isotropic: 0.3,
     grounded: 0.1,
     orbit: 0.3,
-  };
-  rotateSpeed: ModeSetting = {
+  });
+  rotateSpeed = new ControlModeSetting<number>({
     isotropic: 2,
     grounded: 0.5,
     orbit: 2,
-  };
-  panSpeed: ModeSetting = {
+  });
+  panSpeed = new ControlModeSetting<number>({
     isotropic: 1,
     grounded: 0.1 * Math.PI,
     orbit: 1,
-  };
-
-  minDollyStep = 5e-3;
+  });
 
   // Approx. time in seconds to reach end state in update function
-  smoothTime: ModeSetting = {
+  smoothTime = new ControlModeSetting<number>({
     isotropic: 0.1,
     grounded: 0.15,
     orbit: 0.1,
-  };
+  });
 
-  needsUpdate = false;
+  minDistance = new ControlModeSetting<number>({
+    isotropic: EPSILON,
+    grounded: EPSILON,
+    orbit: EPSILON,
+    beforeChange: (v, mode) => {
+      if (v < EPSILON) throw new Error("Min distance must be positive.");
+      if (v > this.maxDistance[mode])
+        throw new Error("Min distance must not be larger than max distance.");
+    },
+    afterChange: (_, mode) => {
+      if (this.mode !== mode) return;
+      this.clampDistance();
+      this.internalUpdate();
+    },
+  });
+  maxDistance = new ControlModeSetting<number>({
+    isotropic: Infinity,
+    grounded: Infinity,
+    orbit: Infinity,
+    beforeChange: (v, mode) => {
+      if (v < EPSILON) throw new Error("Max distance must be positive.");
+      if (v < this.minDistance[mode])
+        throw new Error("Max distance must not be smaller than min distance.");
+    },
+    afterChange: (_, mode) => {
+      if (this.mode !== mode) return;
+      this.clampDistance();
+      this.internalUpdate();
+    },
+  });
 
   // ==================== M O D E
 
   setMode = (mode: ControlMode) => {
     if (this.mode === mode) return;
     this.mode = mode;
-    const saveState = this.stateAnimator.saveState();
-    this.stateAnimator = this.getAnimatorFromMode(mode);
-    this.stateAnimator.loadState(saveState);
+    const saveState = this.controlStateHandler.saveState();
+    this.controlStateHandler = this.getAnimatorFromMode(mode);
+    this.controlStateHandler.loadState(saveState);
     this.internalUpdate();
   };
 
-  private getAnimatorFromMode = (mode: ControlMode): StateAnimator<any> => {
-    if (mode === CONTROL_MODE.ISOTROPIC) {
-      return new IsotropicAnimator(this.camera);
+  private getAnimatorFromMode = (
+    mode: ControlMode
+  ): ControlStateInterpolator<any> => {
+    if (mode === "isotropic") {
+      return new IsotropicInterpolator(this.camera);
     }
-    if (mode === CONTROL_MODE.GROUNDED) {
-      return new GroundedAnimator(this.camera);
+    if (mode === "grounded") {
+      return new GroundedInterpolator(this.camera);
     }
-    return new OrbitAnimator(this.camera);
+    return new OrbitInterpolator(this.camera);
   };
 
   // ==================== E N A B L E  &  D I S A B L E
 
   // If camera has been moved manually while disabled, it likely gets a new orbitCenter on reenable
   protected onEnable = (transition = false) => {
-    this.stateAnimator.setFromCamera(this.camera);
+    this.controlStateHandler.setFromObject(this.camera);
     this.internalUpdate(transition);
   };
 
   protected onDisable = () => {
-    this.stateAnimator.discardEnd();
+    this.controlStateHandler.discardEnd();
   };
 
   // ==================== S E T T E R
 
-  setZoomLimits = (min: number, max: number, transition = false) => {
-    if (min < EPSILON || max < EPSILON)
-      throw new Error("Zoom limits must be positive.");
-    if (min > max)
-      throw new Error("Minimum zoom must not be smaller than max zoom.");
-    this.minDistance = min;
-    this.maxDistance = max;
-    this.stateAnimator.clampDistance(min, max);
-    this.internalUpdate(transition);
-  };
+  // setZoomLimits = (min: number, max: number, transition = false) => {
+  //   if (min < EPSILON || max < EPSILON)
+  //     throw new Error("Zoom limits must be positive.");
+  //   if (min > max)
+  //     throw new Error("Minimum zoom must not be smaller than max zoom.");
+  //   this.minDistance = min;
+  //   this.maxDistance = max;
+  //   this.controlStateHandler.clampDistance(min, max);
+  //   this.internalUpdate(transition);
+  // };
 
   setCamera = (camera: PerspectiveCamera) => {
     this.camera = camera;
-    this.stateAnimator.setFromCamera(this.camera);
-    this.stateAnimator.clampDistance(this.minDistance, this.maxDistance);
+    this.controlStateHandler.setFromObject(this.camera);
+    this.clampDistance();
     this.internalUpdate();
   };
 
   // Might change view direction if active mode does not seperate orbitCenter and view direction.
   setPosition = (position: Vector3Like, transition = false) => {
-    this.stateAnimator.setPosition(position);
-    this.stateAnimator.clampDistance(this.minDistance, this.maxDistance);
+    this.controlStateHandler.setPosition(position);
+    this.clampDistance();
     this.internalUpdate(transition);
   };
 
@@ -138,8 +157,8 @@ export class OrbitXControls extends InteractionHandler {
    * @param transition If the camera should smoothDamp towards the new rotation
    */
   setOrbitCenter = (orbitCenter: Vector3Like, transition = false) => {
-    this.stateAnimator.setOrbitCenter(orbitCenter);
-    this.stateAnimator.clampDistance(this.minDistance, this.maxDistance);
+    this.controlStateHandler.setOrbitCenter(orbitCenter);
+    this.clampDistance();
     this.internalUpdate(transition);
   };
 
@@ -150,15 +169,22 @@ export class OrbitXControls extends InteractionHandler {
    * @param transition If the camera should smoothDamp towards the new rotation
    */
   lookAt = (target: Vector3Like, transition = false) => {
-    this.stateAnimator.lookAt(target);
-    this.stateAnimator.clampDistance(this.minDistance, this.maxDistance);
+    this.controlStateHandler.lookAt(target);
+    this.clampDistance();
     this.internalUpdate(transition);
   };
+
+  private clampDistance() {
+    this.controlStateHandler.clampDistance(
+      this.minDistance[this.mode],
+      this.maxDistance[this.mode]
+    );
+  }
 
   // ========== S T A T E   H A N D L I N G
 
   setDefaultState = (
-    state: CameraSaveState = this.stateAnimator.saveState()
+    state: CameraSaveState = this.controlStateHandler.saveState()
   ) => {
     this.defaultState = state;
   };
@@ -168,7 +194,7 @@ export class OrbitXControls extends InteractionHandler {
   };
 
   loadState = (state: CameraSaveState, transition = false) => {
-    this.stateAnimator.loadState(state);
+    this.controlStateHandler.loadState(state);
     this.internalUpdate(transition);
   };
 
@@ -176,17 +202,17 @@ export class OrbitXControls extends InteractionHandler {
 
   protected rotate = (deltaX: number, deltaY: number) => {
     const rotateScale = Math.PI * this.rotateSpeed[this.mode];
-    this.stateAnimator.rotateUp(deltaY * rotateScale);
-    this.stateAnimator.rotateLeft(-deltaX * rotateScale);
+    this.controlStateHandler.rotateUp(deltaY * rotateScale);
+    this.controlStateHandler.rotateLeft(-deltaX * rotateScale);
     this.needsUpdate = true;
   };
 
   protected dolly = (direction: number) => {
-    this.stateAnimator.dolly(
+    this.controlStateHandler.dolly(
       Math.pow(1 + direction * 0.05, this.dollySpeed[this.mode]),
       this.minDollyStep,
-      this.minDistance,
-      this.maxDistance
+      this.minDistance[this.mode],
+      this.maxDistance[this.mode]
     );
     this.needsUpdate = true;
   };
@@ -194,8 +220,8 @@ export class OrbitXControls extends InteractionHandler {
   protected pan = (deltaX: number, deltaY: number) => {
     const fov = this.camera.getEffectiveFOV();
     const panScale = this.panSpeed[this.mode];
-    this.stateAnimator.panUp(-deltaY * panScale, fov);
-    this.stateAnimator.panLeft(deltaX * panScale, fov);
+    this.controlStateHandler.panUp(-deltaY * panScale, fov);
+    this.controlStateHandler.panLeft(deltaX * panScale, fov);
     this.needsUpdate = true;
   };
 
@@ -203,15 +229,16 @@ export class OrbitXControls extends InteractionHandler {
 
   update = (delta: number) => {
     if (!this.needsUpdate) return false;
+    // State Change by Interaction
     const smoothTime = this.smoothTime[this.mode];
-    this.needsUpdate = !this.stateAnimator.update(smoothTime, delta);
-    this.stateAnimator.applyToCamera(this.camera);
+    this.needsUpdate = this.controlStateHandler.update(smoothTime, delta);
+    this.controlStateHandler.applyToObject(this.camera);
     return true;
   };
 
   // Fast forward to final state on default
   private internalUpdate = (transition = false) => {
-    if (!transition) this.stateAnimator.jumpToEnd();
+    if (!transition) this.controlStateHandler.jumpToEnd();
     this.needsUpdate = true;
   };
 
@@ -232,22 +259,6 @@ export class OrbitXControls extends InteractionHandler {
     duration = 1,
     timingFunction = (t: number) => t
   ) => {
-    if (!this.camera) {
-      throw new Error(
-        "There is no camera available that could be animated. Call setCamera before animating."
-      );
-    }
-    if (
-      c.near !== this.camera.near ||
-      c.far !== this.camera.far ||
-      c.fov !== this.camera.fov ||
-      c.aspect !== this.camera.aspect
-    ) {
-      throw new Error(
-        "Near, far, fov, and aspect must be identical for both cameras to animate smoothly."
-      );
-    }
-
     // Copy initial position of controlled camera
     let initialPosition = this.camera.position.clone();
     let initialQuaternion = this.camera.quaternion.clone();
@@ -275,17 +286,6 @@ export class OrbitXControls extends InteractionHandler {
   animateTo = (state: CameraSaveState) => {
     // TODO: Probably with some more props like duration and timing function
     // TODO: Implement
-  };
-
-  /**
-   * Calculates the CameraState that the controlled camera would need to be in to have another cameras position, rotation and up-vector.
-   * If the cameras are in different object spaces, this method translates the transformation of the other camera to the object space of this camera.
-   * @param c other camera
-   * @returns Camera Save State
-   */
-  getLocalTransformation = (c: PerspectiveCamera) => {
-    // TODO: Convert
-    return new CameraSaveState();
   };
 }
 

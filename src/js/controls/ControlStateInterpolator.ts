@@ -1,25 +1,30 @@
-import { PerspectiveCamera, Quaternion, Vector3, Vector3Like } from "three";
+import { Object3D, Quaternion, Vector3, Vector3Like } from "three";
 import { AXIS } from "./utils/mathUtils";
+import { CameraSaveState } from "./SaveState";
 
-export abstract class StateAnimator<T extends State> {
+/**
+ * Has two ControlStates now and end.
+ * Provides methods for direct manipulation of the end state and two methods update and jumpToEnd to adjust the now state before applying it to an object like a Camera.
+ */
+export abstract class ControlStateInterpolator<T extends ControlState> {
   protected abstract now: T;
   protected abstract end: T;
 
   // ==================== A P P L Y
-  applyToCamera = (c: PerspectiveCamera) => {
+  applyToObject = (c: Object3D) => {
     c.up.copy(this.now.up);
     c.position.copy(this.now.position);
     c.quaternion.copy(this.now.orientation);
   };
 
   // ==================== S E T T E R
-  abstract setFromCamera: (c: PerspectiveCamera) => void;
+  abstract setFromObject: (c: Object3D) => void;
   setPosition = (to: Vector3Like) => this.end.setPosition(to);
   setOrbitCenter = (to: Vector3Like) => this.end.setOrbitCenter(to);
   lookAt = (target: Vector3Like) => this.end.lookAt(target); // Target is in same object space like camera
 
   // ==================== S A V E   S T A T E
-  saveState = () => this.end.saveState();
+  saveState = () => this.now.saveState();
   loadState = (state: CameraSaveState) => this.end.loadState(state);
 
   // ==================== T R A N S F O R M
@@ -40,10 +45,10 @@ export abstract class StateAnimator<T extends State> {
   // ==================== U P D A T E
   abstract jumpToEnd: () => void;
   abstract discardEnd: () => void;
-  abstract update: (smoothTime: number, deltaTime: number) => boolean;
+  abstract update: (smoothTime: number, deltaTime: number) => boolean; // Returns if the another update is needed
 }
 
-export abstract class State {
+export abstract class ControlState {
   orbitCenter = new Vector3();
 
   // ==================== H E L P E R
@@ -79,13 +84,5 @@ export abstract class State {
     forward: this.forward.clone().normalize(),
     up: this.up.clone().normalize(),
   });
-  abstract loadState: (state: CameraSaveState) => State;
-}
-
-// State for translation between different CameraState implementations
-export class CameraSaveState {
-  orbitCenter = new Vector3();
-  offset = new Vector3(0, 0, 1);
-  forward = new Vector3(0, 0, -1);
-  up = new Vector3(0, 1, 0);
+  abstract loadState: (state: CameraSaveState) => ControlState;
 }

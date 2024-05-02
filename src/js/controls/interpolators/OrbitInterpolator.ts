@@ -4,9 +4,12 @@ import {
   Vector3Like,
   Spherical,
   Matrix4,
-  PerspectiveCamera,
+  Object3D,
 } from "three";
-import { CameraSaveState, State, StateAnimator } from "../StateAnimator";
+import {
+  ControlState,
+  ControlStateInterpolator,
+} from "../ControlStateInterpolator";
 import {
   AXIS,
   EPSILON,
@@ -14,10 +17,11 @@ import {
   approxEqualVec3,
   approxZeroVec3,
 } from "../utils/mathUtils";
-import { smoothDamp, smoothDampVec3 } from "../utils/interpolationUtils";
+import { SmoothDamper } from "../utils/SmoothDamper";
 import { DEG2RAD, clamp, euclideanModulo } from "three/src/math/MathUtils.js";
+import { CameraSaveState } from "../SaveState";
 
-export class OrbitAnimator extends StateAnimator<OrbitState> {
+export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
   protected now = new OrbitState();
   protected end = new OrbitState();
 
@@ -31,9 +35,9 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
   // ===== Helper Variables
   private reuseVec = new Vector3();
 
-  constructor(camera?: PerspectiveCamera, orbitCenter?: Vector3Like) {
+  constructor(camera?: Object3D, orbitCenter?: Vector3Like) {
     super();
-    camera && this.setFromCamera(camera);
+    camera && this.setFromObject(camera);
     orbitCenter && this.setOrbitCenter(orbitCenter);
     this.jumpToEnd();
   }
@@ -41,7 +45,7 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
   // ==================== S E T T E R
 
   // Updates orbitCenter to maintain camera position and orientation
-  setFromCamera = (c: PerspectiveCamera) => {
+  setFromObject = (c: Object3D) => {
     this.end.up = c.up;
     const offset = AXIS.Z.clone()
       .applyQuaternion(c.quaternion)
@@ -108,13 +112,13 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
 
   // Returns if more updates are needed to reach the end state
   update = (smoothTime: number, deltaTime: number) => {
-    let reachedEnd = true;
+    let needsUpdate = false;
     // OrbitCenter
     if (approxEqualVec3(this.now.orbitCenter, this.end.orbitCenter)) {
       this.velocityOrbitCenter.set(0, 0, 0);
       this.now.orbitCenter.copy(this.end.orbitCenter);
     } else {
-      smoothDampVec3(
+      SmoothDamper.dampVec3(
         this.now.orbitCenter,
         this.end.orbitCenter,
         this.velocityOrbitCenter,
@@ -123,14 +127,14 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
         deltaTime,
         this.now.orbitCenter
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Phi
     if (approxEqual(this.now.phi, this.end.phi)) {
       this.velocityPhi.value = 0;
       this.now.phi = this.end.phi;
     } else {
-      this.now.phi = smoothDamp(
+      this.now.phi = SmoothDamper.damp(
         this.now.phi,
         this.end.phi,
         this.velocityPhi,
@@ -138,14 +142,14 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
         Infinity,
         deltaTime
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Theta
     if (approxEqual(this.now.theta, this.end.theta)) {
       this.velocityTheta.value = 0;
       this.now.theta = this.end.theta;
     } else {
-      this.now.theta = smoothDamp(
+      this.now.theta = SmoothDamper.damp(
         this.now.theta,
         this.end.theta,
         this.velocityTheta,
@@ -153,14 +157,14 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
         Infinity,
         deltaTime
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // Distance
     if (approxEqual(this.now.distance, this.end.distance)) {
       this.velocityDistance.value = 0;
       this.now.distance = this.end.distance;
     } else {
-      this.now.distance = smoothDamp(
+      this.now.distance = SmoothDamper.damp(
         this.now.distance,
         this.end.distance,
         this.velocityDistance,
@@ -168,14 +172,14 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
         Infinity,
         deltaTime
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
     // UpVector
     if (approxEqualVec3(this.now.up, this.end.up)) {
       this.velocityUp.set(0, 0, 0);
       this.now.up = this.end.up;
     } else {
-      this.now.up = smoothDampVec3(
+      this.now.up = SmoothDamper.dampVec3(
         this.now.up,
         this.end.up,
         this.velocityUp,
@@ -184,14 +188,14 @@ export class OrbitAnimator extends StateAnimator<OrbitState> {
         deltaTime,
         this.reuseVec
       );
-      reachedEnd = false;
+      needsUpdate = true;
     }
-    if (reachedEnd) this.discardEnd();
-    return reachedEnd;
+    if (!needsUpdate) this.discardEnd();
+    return needsUpdate;
   };
 }
 
-class OrbitState extends State {
+class OrbitState extends ControlState {
   private spherical = new Spherical();
 
   // Conversion between up space and y-is-up space
