@@ -1,13 +1,12 @@
-import { PerspectiveCamera, Quaternion, Vector3, Vector3Like } from "three";
-import { EPSILON } from "./utils/mathUtils";
+import { PerspectiveCamera, Vector3Like } from "three";
 import { InteractionHandler } from "./InteractionHandler";
+import { ControlMode } from "./types/ControlMode";
+import { ModeSpecificSetting } from "./ModeSpecificSetting";
 import { ControlStateInterpolator } from "./ControlStateInterpolator";
 import { IsotropicInterpolator } from "./interpolators/IsotropicInterpolator";
 import { GroundedInterpolator } from "./interpolators/GroundedInterpolator";
 import { OrbitInterpolator } from "./interpolators/OrbitInterpolator";
 import { CameraSaveState } from "./SaveState";
-import { ControlMode } from "./types/ControlMode";
-import { ControlModeSetting } from "./ControlModeSetting";
 
 export class OrbitXControls extends InteractionHandler {
   private camera: PerspectiveCamera;
@@ -35,35 +34,35 @@ export class OrbitXControls extends InteractionHandler {
   needsUpdate = false;
   minDollyStep = 5e-3;
 
-  dollySpeed = new ControlModeSetting<number>({
+  dollySpeed = new ModeSpecificSetting<number>({
     isotropic: 0.3,
     grounded: 0.1,
     orbit: 0.3,
   });
-  rotateSpeed = new ControlModeSetting<number>({
+  rotateSpeed = new ModeSpecificSetting<number>({
     isotropic: 2,
     grounded: 0.5,
     orbit: 2,
   });
-  panSpeed = new ControlModeSetting<number>({
+  panSpeed = new ModeSpecificSetting<number>({
     isotropic: 1,
     grounded: 0.1 * Math.PI,
     orbit: 1,
   });
 
   // Approx. time in seconds to reach end state in update function
-  smoothTime = new ControlModeSetting<number>({
+  smoothTime = new ModeSpecificSetting<number>({
     isotropic: 0.1,
     grounded: 0.15,
     orbit: 0.1,
   });
 
-  minDistance = new ControlModeSetting<number>({
-    isotropic: EPSILON,
-    grounded: EPSILON,
-    orbit: EPSILON,
+  minDistance = new ModeSpecificSetting<number>({
+    isotropic: 0,
+    grounded: 0,
+    orbit: 0,
     beforeChange: (v, mode) => {
-      if (v < EPSILON) throw new Error("Min distance must be positive.");
+      if (v < 0) throw new Error("Min distance must be positive.");
       if (v > this.maxDistance[mode])
         throw new Error("Min distance must not be larger than max distance.");
     },
@@ -73,12 +72,12 @@ export class OrbitXControls extends InteractionHandler {
       this.internalUpdate();
     },
   });
-  maxDistance = new ControlModeSetting<number>({
+  maxDistance = new ModeSpecificSetting<number>({
     isotropic: Infinity,
     grounded: Infinity,
     orbit: Infinity,
     beforeChange: (v, mode) => {
-      if (v < EPSILON) throw new Error("Max distance must be positive.");
+      if (v < 0) throw new Error("Max distance must be positive.");
       if (v < this.minDistance[mode])
         throw new Error("Max distance must not be smaller than min distance.");
     },
@@ -229,7 +228,7 @@ export class OrbitXControls extends InteractionHandler {
 
   update = (delta: number) => {
     if (!this.needsUpdate) return false;
-    // State Change by Interaction
+    // By interaction
     const smoothTime = this.smoothTime[this.mode];
     this.needsUpdate = this.controlStateHandler.update(smoothTime, delta);
     this.controlStateHandler.applyToObject(this.camera);
@@ -241,89 +240,4 @@ export class OrbitXControls extends InteractionHandler {
     if (!transition) this.controlStateHandler.jumpToEnd();
     this.needsUpdate = true;
   };
-
-  // ========== A N I M A T I O N
-
-  /**
-   * Animates the controlled camera from the transformation of c back to its initial transformation.
-   * Transformation means the position, quaternion and up-vector.
-   * @param c - other camera
-   * @param duration
-   * @param timingFunction
-   */
-  // TODO: Change c to a CameraSaveState
-  // TODO: Disable controls while animating
-  // TODO: Call internalUpdate and so on
-  animateFrom = (
-    c: PerspectiveCamera,
-    duration = 1,
-    timingFunction = (t: number) => t
-  ) => {
-    // Copy initial position of controlled camera
-    let initialPosition = this.camera.position.clone();
-    let initialQuaternion = this.camera.quaternion.clone();
-    let initialUp = this.camera.up.clone();
-
-    // Orientierung von c1 auf c2 setzen
-    copyCameraOrientation(this.camera, c);
-
-    let startTime = Date.now(); // Change to Three.clock
-    function animate() {
-      let now = Date.now();
-      let elapsed = (now - startTime) / 1000;
-      let progress = timingFunction(Math.min(elapsed / duration, 1));
-
-      c.position.lerp(initialPosition, progress);
-      c.quaternion.slerp(initialQuaternion, progress);
-      c.up.lerp(initialUp, progress);
-
-      if (elapsed < duration) requestAnimationFrame(animate);
-    }
-
-    animate();
-  };
-
-  animateTo = (state: CameraSaveState) => {
-    // TODO: Probably with some more props like duration and timing function
-    // TODO: Implement
-  };
-}
-
-// c2 to c1 in object space
-function copyCameraOrientation(c1: PerspectiveCamera, c2: PerspectiveCamera) {
-  // Weltkoordinaten von c2 in Bezug auf die Szene berechnen
-  let worldPositionC2 = new Vector3();
-  let worldQuaternionC2 = new Quaternion();
-  c2.getWorldPosition(worldPositionC2);
-  c2.getWorldQuaternion(worldQuaternionC2);
-
-  const inverseC1Quat = c1.quaternion.clone().invert();
-
-  // Weltkoordinaten von c2 in Bezug auf c1 umrechnen
-  let relativePositionC2 = worldPositionC2.clone().sub(c1.position);
-  relativePositionC2.applyQuaternion(inverseC1Quat);
-
-  // Relative Rotation von c2 zu c1 berechnen
-  let relativeQuaternionC2 = worldQuaternionC2.clone().multiply(inverseC1Quat);
-
-  // Kopieren der relativen Position und Rotation
-  c1.position.add(relativePositionC2);
-  c1.quaternion.multiply(relativeQuaternionC2);
-
-  // Weltkoordinaten von Up-Vektor von c2 in Bezug auf c1 umrechnen
-  let worldUpC2 = c2.up.clone().applyQuaternion(worldQuaternionC2);
-  let relativeUpC2 = worldUpC2.clone().applyQuaternion(inverseC1Quat); // Not sure if this correct. In the original code this used the inverse of the updated quaternion.
-
-  // Kopieren des Up-Vektors
-  c1.up.copy(relativeUpC2);
-
-  // Kopieren von Near und Far Clipping Planes
-  c1.near = c2.near;
-  c1.far = c2.far;
-
-  // Kopieren des Field of View (FOV)
-  c1.fov = c2.fov;
-
-  // Kopieren des Aspect Ratio (falls nötig)
-  c1.aspect = c2.aspect;
 }

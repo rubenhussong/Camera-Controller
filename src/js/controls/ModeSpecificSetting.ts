@@ -5,7 +5,7 @@ interface OnChangeMethods<T> {
   afterChange?(v: T, m: ControlMode): void;
 }
 
-export class ControlModeSetting<T> {
+export class ModeSpecificSetting<T> {
   isotropic: T;
   grounded: T;
   orbit: T;
