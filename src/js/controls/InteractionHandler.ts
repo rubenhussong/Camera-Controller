@@ -1,5 +1,7 @@
+// Event button value for mouse keys
 const MOUSE = { LEFT: 0, RIGHT: 2 };
 
+// To store the active action
 const ACTION = {
   NONE: -1,
   DOLLY: 0,
@@ -10,6 +12,11 @@ const ACTION = {
   TOUCH_PAN: 5,
 };
 
+/**
+ * Responsible for everything that has to do with user interaction.
+ * The Controls class extends this abstract class and implements in particular the three transformation methods dolly, rotate and pan, as well as optional effects onEnable and onDisable.
+ * The InteractionHandler is initially deactivated.
+ */
 export abstract class InteractionHandler {
   private domElement: HTMLElement;
 
@@ -26,16 +33,22 @@ export abstract class InteractionHandler {
   rotateEnabled = true;
   panEnabled = true;
 
+  /**
+   * Start listening on interaction.
+   */
   enable = () => {
-    this.onEnable && this.onEnable();
+    this.onEnable();
     this.startListeningToUser();
     this.enabled = true;
   };
 
+  /**
+   * End listening on interaction.
+   */
   disable = () => {
     this.enabled = false;
     this.stopListeningToUser();
-    this.onDisable && this.onDisable();
+    this.onDisable();
   };
 
   // ==================== I N T E R N A L   V A R I A B L E S
@@ -49,8 +62,9 @@ export abstract class InteractionHandler {
 
   // ==================== A B S T R A C T S
 
-  protected onEnable?: () => void;
-  protected onDisable?: () => void;
+  // Additional effects that can optionally be overwritten by the extending class and trigger on enable/disable.
+  protected onEnable = () => {};
+  protected onDisable = () => {};
 
   protected abstract dolly: (direction: number) => void;
   protected abstract rotate: (deltaX: number, deltaY: number) => void;
@@ -76,12 +90,14 @@ export abstract class InteractionHandler {
 
   // ========== Mouse Change Event Listeners
 
+  // Start listening for events that cause an action triggered by the mouse to be canceled.
   private startMouseChangeListeners = () => {
     this.domElement.addEventListener("mouseup", this.onMouseUp);
     this.domElement.addEventListener("mouseleave", this.onMouseLeave);
     this.domElement.addEventListener("mousemove", this.onMouseMove);
   };
 
+  // Stop listening for events that trigger the action abort. (The action has probably been canceled.)
   private stopMouseChangeListeners = () => {
     this.domElement.removeEventListener("mouseup", this.onMouseUp);
     this.domElement.removeEventListener("mouseleave", this.onMouseLeave);
@@ -90,12 +106,14 @@ export abstract class InteractionHandler {
 
   // ========== Touch Change Event Listeners
 
+  // Start listening for events that cause an action triggered by touch to be canceled.
   private startTouchChangeListeners = () => {
     this.domElement.addEventListener("touchend", this.onTouchEnd);
     this.domElement.addEventListener("touchcancel", this.onTouchCancel);
     this.domElement.addEventListener("touchmove", this.onTouchMove);
   };
 
+  // Stop listening for events that trigger the action abort. (The action has probably been canceled.)
   private stopTouchChangeListeners = () => {
     this.domElement.removeEventListener("touchend", this.onTouchEnd);
     this.domElement.removeEventListener("touchcancel", this.onTouchCancel);
@@ -155,6 +173,7 @@ export abstract class InteractionHandler {
 
   // ========== Context Menu
 
+  // Prevents the context menu from appearing.
   private preventContextMenu = () => {
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
@@ -167,6 +186,10 @@ export abstract class InteractionHandler {
 
   // ========== Mouse Event Handlers
 
+  /**
+   * Activate an action depending on which mouse button is pressed.
+   * @param e the mouse event
+   */
   private handleMouseStart = (e: MouseEvent) => {
     switch (e.button) {
       case MOUSE.LEFT: {
@@ -188,11 +211,16 @@ export abstract class InteractionHandler {
     this.startMouseChangeListeners();
   };
 
+  // Cancel action that has been triggered by the mouse.
   private handleMouseStop = () => {
     this.action = ACTION.NONE;
     this.stopMouseChangeListeners();
   };
 
+  /**
+   * Trigger a transformation based on the active action and the distance traveled by the mouse.
+   * @param e the mouse event
+   */
   private handleMouseMove = (e: MouseEvent) => {
     this.pointer.set(e.clientX, e.clientY);
     const delta = this.getRelativePointerDelta();
@@ -215,6 +243,7 @@ export abstract class InteractionHandler {
     this.lastPointer.copy(this.pointer);
   };
 
+  // Dolly on mouse wheel
   private handleMouseWheel = (e: WheelEvent) => {
     if (!this.dollyEnabled) return;
     this.action = ACTION.DOLLY;
@@ -224,6 +253,10 @@ export abstract class InteractionHandler {
 
   // ========== Touch Event Handlers
 
+  /**
+   * Activate an action depending on how many fingers touch the screen.
+   * @param e the touch event
+   */
   private handleTouchStart = (e: TouchEvent) => {
     switch (e.touches.length) {
       case 1: {
@@ -250,14 +283,17 @@ export abstract class InteractionHandler {
     this.startTouchChangeListeners();
   };
 
+  // Cancel action that has been triggered by touch.
   private handleTouchStop = () => {
     this.action = ACTION.NONE;
     this.stopTouchChangeListeners();
   };
 
-  // TODO: Test TOUCH_DOLLY and TOUCH_PAN
-  // TODO: Test if multi-finger touch does fire one and only one touchmove event
-  // TODO: It is probably necessary to flip the deltas
+  /**
+   * Triggering a transformation based on the active action and the distance traveled by the finger/s.
+   * @param e the mouse event
+   */
+  // TODO: Test
   private handleTouchMove = (e: TouchEvent) => {
     this.pointer.set(e.touches[0].clientX, e.touches[0].clientY);
     const delta = this.getRelativePointerDelta();
@@ -287,6 +323,7 @@ export abstract class InteractionHandler {
 
   // ==================== U T I L I T Y
 
+  // Returns the distance between the last two positions on the screen in relation to its size.
   private getRelativePointerDelta = () => {
     return Pointer.getDelta(this.pointer, this.lastPointer).scale(
       1 / this.domElement.clientHeight
@@ -294,6 +331,9 @@ export abstract class InteractionHandler {
   };
 }
 
+/**
+ * A two-dimensional vector to store a position on the screen.
+ */
 class Pointer {
   x: number;
   y: number;

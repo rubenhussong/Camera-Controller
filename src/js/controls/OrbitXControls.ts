@@ -125,17 +125,6 @@ export class OrbitXControls extends InteractionHandler {
 
   // ==================== S E T T E R
 
-  // setZoomLimits = (min: number, max: number, transition = false) => {
-  //   if (min < EPSILON || max < EPSILON)
-  //     throw new Error("Zoom limits must be positive.");
-  //   if (min > max)
-  //     throw new Error("Minimum zoom must not be smaller than max zoom.");
-  //   this.minDistance = min;
-  //   this.maxDistance = max;
-  //   this.controlStateHandler.clampDistance(min, max);
-  //   this.internalUpdate(transition);
-  // };
-
   setCamera = (camera: PerspectiveCamera) => {
     this.camera = camera;
     this.controlStateHandler.setFromObject(this.camera);
@@ -228,7 +217,6 @@ export class OrbitXControls extends InteractionHandler {
 
   update = (delta: number) => {
     if (!this.needsUpdate) return false;
-    // By interaction
     const smoothTime = this.smoothTime[this.mode];
     this.needsUpdate = this.controlStateHandler.update(smoothTime, delta);
     this.controlStateHandler.applyToObject(this.camera);
@@ -237,7 +225,10 @@ export class OrbitXControls extends InteractionHandler {
 
   // Fast forward to final state on default
   private internalUpdate = (transition = false) => {
-    if (!transition) this.controlStateHandler.jumpToEnd();
-    this.needsUpdate = true;
+    if (!transition) {
+      this.controlStateHandler.jumpToEnd();
+      this.controlStateHandler.applyToObject(this.camera);
+    }
+    this.needsUpdate = true; // To propagate rerender
   };
 }
