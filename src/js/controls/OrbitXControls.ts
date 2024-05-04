@@ -6,14 +6,17 @@ import { ControlStateInterpolator } from "./ControlStateInterpolator";
 import { IsotropicInterpolator } from "./interpolators/IsotropicInterpolator";
 import { GroundedInterpolator } from "./interpolators/GroundedInterpolator";
 import { OrbitInterpolator } from "./interpolators/OrbitInterpolator";
-import { CameraSaveState } from "./utils/SaveState";
+import { SaveState } from "./utils/SaveState";
 
+/**
+ * Custom camera controls with different modes that define the transformations triggered by user interaction.
+ */
 export class OrbitXControls extends InteractionHandler {
   private camera: PerspectiveCamera;
-  private mode: ControlMode;
+  private _mode: ControlMode;
   private controlStateHandler: ControlStateInterpolator<any>;
 
-  private defaultState: CameraSaveState;
+  private defaultState: SaveState;
 
   constructor(
     domElement: HTMLElement,
@@ -22,9 +25,9 @@ export class OrbitXControls extends InteractionHandler {
   ) {
     super(domElement);
     this.camera = camera;
-    this.mode = mode;
+    this._mode = mode;
     this.controlStateHandler = this.getAnimatorFromMode(mode);
-    this.defaultState = new CameraSaveState();
+    this.defaultState = new SaveState();
     this.needsUpdate = true;
     this.enable();
   }
@@ -32,6 +35,7 @@ export class OrbitXControls extends InteractionHandler {
   // ==================== S E T T I N G S
 
   needsUpdate = false;
+  dampingEnabled = true;
   minDollyStep = 5e-3;
 
   dollySpeed = new ModeSpecificSetting<number>({
@@ -57,6 +61,7 @@ export class OrbitXControls extends InteractionHandler {
     orbit: 0.1,
   });
 
+  // afterChange method updates camera when distance limit is changed
   minDistance = new ModeSpecificSetting<number>({
     isotropic: 0,
     grounded: 0,
@@ -90,14 +95,27 @@ export class OrbitXControls extends InteractionHandler {
 
   // ==================== M O D E
 
-  setMode = (mode: ControlMode) => {
+  /**
+   * @returns the active control mode
+   */
+  get mode(): ControlMode {
+    return this._mode;
+  }
+
+  /**
+   * 'orbit' - Orbit around a center point, but blocked at the poles to prevent being upside down.
+   * 'isotropic' - Like 'orbit', but without the pole locks. Instead, the camera “up” is continuously updated.
+   * 'grounded' - Rotation and position are separated. Rotation around oneself instead of an orbit center. Panning is actually a slow rotation around the orbit center.
+   * @param mode new control mode
+   */
+  set mode(mode: ControlMode) {
     if (this.mode === mode) return;
     this.mode = mode;
     const saveState = this.controlStateHandler.saveState();
     this.controlStateHandler = this.getAnimatorFromMode(mode);
     this.controlStateHandler.loadState(saveState);
     this.internalUpdate();
-  };
+  }
 
   private getAnimatorFromMode = (
     mode: ControlMode
@@ -113,48 +131,57 @@ export class OrbitXControls extends InteractionHandler {
 
   // ==================== E N A B L E  &  D I S A B L E
 
-  // If camera has been moved manually while disabled, it likely gets a new orbitCenter on reenable
-  protected onEnable = (transition = false) => {
+  // If the camera was moved while disabled, the changes are applied to the controls.
+  // This might lead to an update of the orbit center.
+  protected onEnable = () => {
     this.controlStateHandler.setFromObject(this.camera);
-    this.internalUpdate(transition);
   };
 
-  protected onDisable = () => {
-    this.controlStateHandler.discardEnd();
-  };
+  // Stop smoothDamp and discard all future changes on disable.
+  protected onDisable = () => this.controlStateHandler.discardEnd();
 
   // ==================== S E T T E R
 
-  setCamera = (camera: PerspectiveCamera) => {
-    this.camera = camera;
-    this.controlStateHandler.setFromObject(this.camera);
-    this.clampDistance();
-    this.internalUpdate();
-  };
-
-  // Might change view direction if active mode does not seperate orbitCenter and view direction.
-  setPosition = (position: Vector3Like, transition = false) => {
-    this.controlStateHandler.setPosition(position);
-    this.clampDistance();
-    this.internalUpdate(transition);
-  };
-
   /**
-   * Might change camera rotation if active mode does not seperate orbit center and view direction.
-   * @param orbitCenter New orbit center
-   * @param transition If the camera should smoothDamp towards the new rotation
+   * Sets the controlled camera. This will not affect the orientation and position of the camera.
+   * The orbit center is reset based on the offset of the last camera.
+   * @param c the new camera
    */
-  setOrbitCenter = (orbitCenter: Vector3Like, transition = false) => {
-    this.controlStateHandler.setOrbitCenter(orbitCenter);
+  setCamera = (c: PerspectiveCamera) => {
+    this.camera = c;
+    this.controlStateHandler.setFromObject(this.camera);
+  };
+
+  /**
+   * Changes the position of the current camera. The orbit center remains unchanged and the distance limits are maintained.
+   * If the active mode does not handle the viewing direction separately from the orbit center, the camera is rotated.
+   * @param to new camera position
+   * @param transition if the camera should smooth damp to the new position (or jump if false)
+   */
+  setPosition = (to: Vector3Like, transition = false) => {
+    this.controlStateHandler.setPosition(to);
     this.clampDistance();
     this.internalUpdate(transition);
   };
 
   /**
-   * Makes the camera look at a certain point in its object space.
-   * Might change the orbit center if active mode does not seperate orbit center and view direction.
-   * @param target Where the camera should look to
-   * @param transition If the camera should smoothDamp towards the new rotation
+   * Changes the orbit center. The camera position remains unchanged and the distance limits are maintained.
+   * If the active mode does not handle the viewing direction separately from the orbit center, the camera is rotated.
+   * @param to new orbit center position
+   * @param transition if the camera should smooth damp to its new orientation (or jump if false)
+   */
+  setOrbitCenter = (to: Vector3Like, transition = false) => {
+    this.controlStateHandler.setOrbitCenter(to);
+    this.clampDistance();
+    this.internalUpdate(transition);
+  };
+
+  /**
+   * Makes the camera look in the direction of a certain point in its object space.
+   * If the active mode does not handle the viewing direction separately from the orbit center, the orbit center is reset.
+   * The distance of the camera to the orbit center is maintained. This method does not set the target as orbit center.
+   * @param target where the camera should look
+   * @param transition if the camera should smooth damp to its new orientation (or jump if false)
    */
   lookAt = (target: Vector3Like, transition = false) => {
     this.controlStateHandler.lookAt(target);
@@ -162,6 +189,7 @@ export class OrbitXControls extends InteractionHandler {
     this.internalUpdate(transition);
   };
 
+  // Enforces the distance limits.
   private clampDistance() {
     this.controlStateHandler.clampDistance(
       this.minDistance[this.mode],
@@ -171,23 +199,40 @@ export class OrbitXControls extends InteractionHandler {
 
   // ========== S T A T E   H A N D L I N G
 
+  /**
+   * Saves a default state to which the controller can be reset later.
+   * @param state the new default state (default: the current state)
+   */
   setDefaultState = (
-    state: CameraSaveState = this.controlStateHandler.saveState()
+    state: SaveState = this.controlStateHandler.saveState()
   ) => {
     this.defaultState = state;
   };
 
+  /**
+   * Resets the current state to the saved default state. If no default state has been saved, this is the state the camera was in after it was first added to the controls.
+   * Distance limits are maintained. If this is unwanted, reset the distance limits.
+   * @param transition if the camera should smooth damp tow the default state (or jump if false)
+   */
   resetStateToDefault = (transition = false) => {
     this.loadState(this.defaultState, transition);
   };
 
-  loadState = (state: CameraSaveState, transition = false) => {
+  /**
+   * Resets the current state. Distance limits are maintained. If this is unwanted, reset the distance limits.
+   * This does not change the mode. If the active mode does not support properties of the state, such as a different orbit center and viewing direction, this can lead to unexpected effects.
+   * @param state new camera state
+   * @param transition if the camera should smooth damp tow the default state (or jump if false)
+   */
+  loadState = (state: SaveState, transition = false) => {
     this.controlStateHandler.loadState(state);
+    this.clampDistance();
     this.internalUpdate(transition);
   };
 
   // ==================== T R A N S F O R M
 
+  // Triggered by user interaction, the camera is rotated according to the active mode.
   protected rotate = (deltaX: number, deltaY: number) => {
     const rotateScale = Math.PI * this.rotateSpeed[this.mode];
     this.controlStateHandler.rotateUp(deltaY * rotateScale);
@@ -195,6 +240,7 @@ export class OrbitXControls extends InteractionHandler {
     this.needsUpdate = true;
   };
 
+  // Triggered by user interaction, the camera is dollied according to the active mode.
   protected dolly = (direction: number) => {
     this.controlStateHandler.dolly(
       Math.pow(1 + direction * 0.05, this.dollySpeed[this.mode]),
@@ -205,6 +251,7 @@ export class OrbitXControls extends InteractionHandler {
     this.needsUpdate = true;
   };
 
+  // Triggered by user interaction, the camera is panned according to the active mode.
   protected pan = (deltaX: number, deltaY: number) => {
     const fov = this.camera.getEffectiveFOV();
     const panScale = this.panSpeed[this.mode];
@@ -215,20 +262,35 @@ export class OrbitXControls extends InteractionHandler {
 
   // ==================== U P D A T E
 
+  /**
+   * Updates camera position and orientation. This should be called in the tick loop.
+   * @param delta time difference in miliseconds since last update
+   * @returns whether rerender is needed
+   */
   update = (delta: number) => {
     if (!this.needsUpdate) return false;
     const smoothTime = this.smoothTime[this.mode];
-    this.needsUpdate = this.controlStateHandler.update(smoothTime, delta);
+    if (this.dampingEnabled) {
+      this.needsUpdate = this.controlStateHandler.update(smoothTime, delta);
+    } else {
+      this.controlStateHandler.jumpToEnd();
+      this.needsUpdate = false;
+    }
     this.controlStateHandler.applyToObject(this.camera);
     return true;
   };
 
-  // Fast forward to final state on default
+  /**
+   * Adpots immediate changes to the camera and propagates via the update method that a rerender is needed.
+   * This function is called when changes are made without user interaction.
+   * @param transition if the camera should smooth damp tow the default state (or jump if false)
+   */
   private internalUpdate = (transition = false) => {
     if (!transition) {
       this.controlStateHandler.jumpToEnd();
+      // Makes it redundant to call update if rerendering is happening anyway, for example initially.
       this.controlStateHandler.applyToObject(this.camera);
     }
-    this.needsUpdate = true; // To propagate rerender
+    this.needsUpdate = true;
   };
 }

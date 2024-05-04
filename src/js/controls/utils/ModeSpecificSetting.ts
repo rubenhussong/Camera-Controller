@@ -5,6 +5,10 @@ interface OnChangeMethods<T> {
   afterChange?(v: T, m: ControlMode): void;
 }
 
+/**
+ * Object with a variable of type T for each available mode.
+ * Provides getters and setters as well as beforeChange and afterChange methods to execute side effects in the setter.
+ */
 export class ModeSpecificSetting<T> {
   isotropic: T;
   grounded: T;

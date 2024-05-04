@@ -34,7 +34,7 @@ export abstract class InteractionHandler {
   panEnabled = true;
 
   /**
-   * Start listening on interaction.
+   * Start listening to user interaction.
    */
   enable = () => {
     this.onEnable();
@@ -43,7 +43,7 @@ export abstract class InteractionHandler {
   };
 
   /**
-   * End listening on interaction.
+   * End listening to user interaction.
    */
   disable = () => {
     this.enabled = false;

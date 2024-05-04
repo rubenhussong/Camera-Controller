@@ -1,4 +1,8 @@
 import {
+  ControlState,
+  ControlStateInterpolator,
+} from "../ControlStateInterpolator";
+import {
   Vector3,
   Quaternion,
   Vector3Like,
@@ -6,10 +10,7 @@ import {
   Euler,
   Object3D,
 } from "three";
-import {
-  ControlState,
-  ControlStateInterpolator,
-} from "../ControlStateInterpolator";
+import { clamp, euclideanModulo } from "three/src/math/MathUtils.js";
 import {
   AXIS,
   EPSILON,
@@ -23,14 +24,21 @@ import {
   approxZeroVec3,
 } from "../utils/mathUtils";
 import { SmoothDamper } from "../utils/SmoothDamper";
-import { clamp, euclideanModulo } from "three/src/math/MathUtils.js";
-import { CameraSaveState } from "../utils/SaveState";
+import { SaveState } from "../utils/SaveState";
 
+/**
+ * Realizes the 'grounded' mode.
+ * Movement like on a planet:
+ * - The offset direction is the up vector.
+ * - The view direction is detached from the orbit center.
+ * - The orbit center is fixed, panning is actually a slow rotation around it.
+ * - Rotate triggers a rotation around the object itself instead of the orbit center.
+ */
 export class GroundedInterpolator extends ControlStateInterpolator<GroundedState> {
-  protected now = new GroundedState();
-  protected end = new GroundedState();
+  protected now = new GroundedState(); // actual state
+  protected end = new GroundedState(); // target state
 
-  // ===== Update Variables
+  // ===== Update Variables (for smooth damping)
   private velocityOrbitCenter = new Vector3();
   private velocityQuaternion = new Quaternion(0, 0, 0, 0);
   private velocityLookUpAngle = { value: 0 };
@@ -49,8 +57,13 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
 
   // ==================== S E T T E R
 
-  // Calculates positionQuat from camera position relatively to the orbitCenter.
-  // Sets polarAngle as angle between relative camera direction and view direction.
+  /**
+   * Calculates end state position and rotation from camera position relatively to the orbitCenter.
+   * Sets end state lookUpAngle as angle between inverse offset and view direction.
+   * Maintains orbit center.
+   * @param o object, usually a camera
+   */
+  // TODO: Update the orbitCenter to maintain the offset instead of recalculating it. Otherwise, this will trigger a repositioning of the camera if the distance limits are not met.
   setFromObject = (c: Object3D) => {
     this.end.distance = this.end.orbitCenter.distanceTo(c.position);
     if (approxZero(this.end.distance)) {
@@ -71,10 +84,17 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
 
   // ==================== T R A N S F O R M
 
-  // Move along viewing direction
-  // To reduce complexity, two assumptions are made:
-  // 1. Current distance, including prior translations, remains within limits by not resetting them during user actions.
-  // 2. The translation only alters the distance linearly, which is not the case, if the current offset is near the minimum and the viewing direction just below the tangent. Ignored because it will probably only lead to rare inaccuracies.
+  /**
+   * Moves end state along or against viewing direction.
+   * Clamps the end state distance to the orbit center.
+   * @param scale direction, forward if greater 1, backward if smaller
+   * @param minStep minimum step
+   * @param minDistance minimum distance to orbit center
+   * @param maxDistance maximum distance to orbit center
+   * To reduce complexity, two assumptions are made:
+   * 1. Current distance, including prior translations, remains within limits by not resetting them during user actions.
+   * 2. The translation only alters the distance linearly, which is not the case, if the current offset is near the minimum and the viewing direction just below the tangent. Ignored because it will probably only lead to rare inaccuracies.
+   */
   dolly = (
     scale: number,
     minStep = 0,
@@ -93,28 +113,49 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
     this.end.translation.addScaledVector(direction, step);
   };
 
+  /**
+   * Limits the end state distance from orbit center.
+   * This does not take the translation into account.
+   * @param min minimum distance
+   * @param max maximum distance
+   */
   clampDistance = (min: number, max: number) => {
     this.end.distance = clamp(this.end.distance, min, max);
   };
 
-  // Horizontal rotation of view direction
+  /**
+   * Rotates the end state view direction horizontally around up vector.
+   * @param theta angle
+   */
   rotateLeft = (theta: number) => {
     const rotation = this.reuseQuat.setFromAxisAngle(AXIS.Z, -theta);
     this.end.offsetQuat.multiply(rotation);
   };
 
-  // Vertical rotation of view direction
+  /**
+   * Rotates the end state view direction vertically around right vector.
+   * Stops at the poles to prevent object from being upside down.
+   * @param phi angle
+   */
   rotateUp = (phi: number) => {
     this.end.lookUpAngle += phi;
   };
 
-  // Horizontal rotation around orbitCenter
+  /**
+   * Rotates the end state horizontally around orbit center.
+   * Because the view direction does not depend on the orbit center, this is a movement to the sides and feels like panning on a planet surface.
+   * @param delta angle
+   */
   panLeft = (delta: number) => {
     const rotation = this.reuseQuat.setFromAxisAngle(AXIS.Y, -delta);
     this.end.offsetQuat.multiply(rotation);
   };
 
-  // Vertical rotation around orbitCenter
+  /**
+   * Rotates the end state vertically around orbit center.
+   * Because the view direction does not depend on the orbit center, this is a movement to the front or back and feels like panning on a planet surface.
+   * @param delta angle
+   */
   panUp = (delta: number) => {
     const rotation = this.reuseQuat.setFromAxisAngle(AXIS.X, delta);
     this.end.offsetQuat.multiply(rotation);
@@ -122,6 +163,10 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
 
   // ==================== U P D A T E
 
+  /**
+   * Fast-forwards to the end state by copying it to the now state.
+   * All angles are normalized to ensure state unambiguity.
+   */
   jumpToEnd = () => {
     this.end.normalize();
     this.now.orbitCenter.copy(this.end.orbitCenter);
@@ -131,6 +176,10 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
     this.now.translation.copy(this.end.translation); // Will be zero because normalized
   };
 
+  /**
+   * Copies the now state to the end state.
+   * All angles are normalized to ensure state unambiguity.
+   */
   discardEnd = () => {
     this.now.normalize();
     this.end.orbitCenter.copy(this.now.orbitCenter);
@@ -140,7 +189,10 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
     this.end.translation.copy(this.now.translation); // Will be zero because normalized
   };
 
-  // Returns if more updates are needed to reach the end state
+  /**
+   * Smooth damps the now state towards the end state.
+   * @returns if another update is needed for the now state to reach the end state
+   */
   update = (smoothTime: number, deltaTime: number) => {
     let needsUpdate = false;
     // OrbitCenter
@@ -227,12 +279,21 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
   };
 }
 
+/**
+ * Models the current object state as orbit center, quaternion, look up angle and distance.
+ * Rotation rotates the view direction and panning rotates around the orbitCenter.
+ * The object’s up vector is continuously updated to the offset direction, so the orbit center is always down.
+ * The vertical rotation is limited to the range [EPS, PI - EPS] to prevent the object from being upside down.
+ */
 class GroundedState extends ControlState {
   offsetQuat = new Quaternion(); // Orientation from orbitCenter
   private _lookUpAngle = EPSILON; // Angle between view direction and down vector
   private _distance = 1;
 
-  // Additional offset used for linear interpolation. Call applyTranslation to take it into account.
+  /**
+   * Additional offset used for linear interpolation.
+   * Call applyTranslation to take it into account.
+   */
   translation = new Vector3();
 
   // ===== Helper Variables
@@ -240,8 +301,13 @@ class GroundedState extends ControlState {
   private reuseQuat = new Quaternion();
   private reuseEuler = new Euler();
 
+  /**
+   * Converts the translation into an update of the quaternion, look up angle and distance.
+   * Sets all angles to range [0, 2*PI[
+   * @returns this
+   */
   normalize = () => {
-    this.applyTranslation(this.translation);
+    this.applyTranslation();
     this.translation.set(0, 0, 0);
     this.offsetQuat.normalize();
     const euler = this.reuseEuler.setFromQuaternion(this.offsetQuat);
@@ -254,8 +320,11 @@ class GroundedState extends ControlState {
 
   // ==================== T R A N S F O R M
 
-  // Takes translation into account by converting it to a distance, offsetQuat and lookUp angle update.
-  // Maintains orbitCenter and view direction
+  /**
+   * Converts a translation into an update of the offset quaternion, look up angle and distance.
+   * Maintains orbitCenter and view direction.
+   * @param delta the share of the translation that should be taken into account
+   */
   applyTranslation = (delta: Vector3Like = this.translation) => {
     const newOffset = this.reuseVec.addVectors(this.offset, delta);
     this.distance = newOffset.length();
@@ -270,33 +339,55 @@ class GroundedState extends ControlState {
 
   // ==================== G E T T E R
 
+  /**
+   * @returns position relative to orbit center
+   */
   get offset(): Vector3 {
     return this._offset
       .set(0, 0, this.distance)
       .applyQuaternion(this.offsetQuat);
   }
+
+  /**
+   * @returns distance from orbit center
+   */
   get distance(): number {
     return this._distance;
   }
 
+  /**
+   * @returns angle between down vector and view direction
+   */
   get lookUpAngle() {
     return this._lookUpAngle;
   }
 
+  /**
+   * @returns object rotation
+   */
   get orientation(): Quaternion {
     return this._orientation
       .setFromAxisAngle(AXIS.X, this.lookUpAngle)
       .premultiply(this.offsetQuat);
   }
 
+  /**
+   * @returns right direction
+   */
   get right(): Vector3 {
     return this._right.copy(AXIS.X).applyQuaternion(this.offsetQuat);
   }
 
+  /**
+   * @returns up direction
+   */
   get up(): Vector3 {
     return this._up.copy(AXIS.Z).applyQuaternion(this.offsetQuat);
   }
 
+  /**
+   * @returns viewing direction
+   */
   get forward(): Vector3 {
     return this._forward
       .copy(AXIS.Z)
@@ -306,15 +397,29 @@ class GroundedState extends ControlState {
 
   // ==================== S E T T E R
 
-  set lookUpAngle(v: number) {
-    this._lookUpAngle = Math.max(EPSILON, Math.min(Math.PI - EPSILON, v));
-  }
-
+  /**
+   * Sets the distance to the orbit center.
+   * Prevents the distance from being 0 or less.
+   * @param v new distance
+   */
   set distance(v: number) {
     this._distance = Math.max(EPSILON, v);
   }
 
-  // Maintains orbitCenter and view direction
+  /**
+   * Sets angle between down vector and view direction.
+   * Prevents the angle from being out of the range [EPS, PI - EPS]
+   * @param v new look up angle
+   */
+  set lookUpAngle(v: number) {
+    this._lookUpAngle = clamp(v, EPSILON, Math.PI - EPSILON);
+  }
+
+  /**
+   * Updates the position.
+   * Maintains the orbit center and the view direction.
+   * @param to new position
+   */
   setPosition = (to: Vector3Like) => {
     if (approxEqualVec3(this.position, to)) return;
     this.distance = this.orbitCenter.distanceTo(to);
@@ -327,7 +432,12 @@ class GroundedState extends ControlState {
     this.lookAt(this.position.clone().add(forward));
   };
 
-  // Maintains camera position and view direction
+  /**
+   * Updates the orbit center.
+   * To maintain the camera position the offset is updated.
+   * Also maintains the view direction.
+   * @param to new orbit center
+   */
   setOrbitCenter = (to: Vector3Like) => {
     if (approxEqualVec3(this.orbitCenter, to)) return;
     const position = this.position;
@@ -343,7 +453,12 @@ class GroundedState extends ControlState {
     this.lookAt(this.position.clone().add(forward));
   };
 
-  // Updates offsetQuat yaw and lookUpAngle
+  /**
+   * Updates the rotation to look in the direction of a certain point in the object space.
+   * Maintains the position and the orbitCenter.
+   * Updates the quaternion yaw (horizontal view direction) and the look up angle (vertical view direction).
+   * @param target where the object should look
+   */
   lookAt = (target: Vector3Like) => {
     if (approxEqualVec3(this.position, target)) return;
     const newForward = new Vector3()
@@ -369,7 +484,13 @@ class GroundedState extends ControlState {
 
   // ==================== S A V E   S T A T E
 
-  loadState = (state: CameraSaveState) => {
+  /**
+   * Resets this state based on a SaveState.
+   * Because the GroundedState up vector is always the normalized offset, there are SaveStates that cannot be displayed. Offset and forward are prioritized over the SaveState up vector.
+   * @param state the SaveState to be loaded
+   * @returns this
+   */
+  loadState = (state: SaveState) => {
     const forward = state.forward.clone().normalize();
     const up = approxZeroVec3(state.offset)
       ? forward.clone().negate()

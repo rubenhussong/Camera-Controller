@@ -19,13 +19,17 @@ import {
 } from "../utils/mathUtils";
 import { SmoothDamper } from "../utils/SmoothDamper";
 import { DEG2RAD, clamp, euclideanModulo } from "three/src/math/MathUtils.js";
-import { CameraSaveState } from "../utils/SaveState";
+import { SaveState } from "../utils/SaveState";
 
+/**
+ * Realizes the 'orbit' mode.
+ * Works similar to OrbitControls but with smoothDamping for all transformations and in object spaces.
+ */
 export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
-  protected now = new OrbitState();
-  protected end = new OrbitState();
+  protected now = new OrbitState(); // actual state
+  protected end = new OrbitState(); // target state
 
-  // ===== Update Variables
+  // ===== Update Variables (for smooth damping)
   private velocityOrbitCenter = new Vector3();
   private velocityPhi = { value: 0 };
   private velocityTheta = { value: 0 };
@@ -44,56 +48,88 @@ export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
 
   // ==================== S E T T E R
 
-  // Updates orbitCenter to maintain camera position and orientation
-  setFromObject = (c: Object3D) => {
-    this.end.up = c.up;
+  /**
+   * Sets the up vector and offset of the end state based on the object up vector and quaternion.
+   * Updates the orbit center to be in the viewing direction. Maintains the current distance.
+   * @param o object, usually a camera
+   */
+  setFromObject = (o: Object3D) => {
+    this.end.up = o.up;
     const offset = AXIS.Z.clone()
-      .applyQuaternion(c.quaternion)
+      .applyQuaternion(o.quaternion)
       .multiplyScalar(this.end.distance);
-    this.end.orbitCenter.copy(c.position).sub(offset);
+    this.end.orbitCenter.copy(o.position).sub(offset);
     this.end.offset = offset;
   };
 
   // ==================== T R A N S F O R M
 
-  // Moves towards or away from orbitCenter
+  /**
+   * Scales and clamps the end state distance to the orbit center.
+   * @param scale scaling factor
+   * @param minStep minimum step for small distances
+   * @param minDistance minimum distance to orbit center
+   * @param maxDistance maximum distance to orbit center
+   */
   dolly = (
     scale: number,
     minStep = 0,
     minDistance = EPSILON,
     maxDistance = Infinity
   ) => {
-    const delta = this.end.distance * scale - this.end.distance;
+    const delta = this.end.distance * (scale - 1);
     this.end.distance += Math.sign(delta) * Math.max(minStep, Math.abs(delta));
     this.clampDistance(minDistance, maxDistance);
   };
 
+  /**
+   * Limits the end state distance from orbit center.
+   * @param min minimum distance
+   * @param max maximum distance
+   */
   clampDistance = (min: number, max: number) => {
     this.end.distance = clamp(this.end.distance, min, max);
   };
 
-  // Horizontal rotation around up axis
+  /**
+   * Rotates end state around up vector along the current latitude line.
+   * @param theta angle
+   */
   rotateLeft = (theta: number) => (this.end.theta += theta);
 
-  // Vertical rotation around up axis
+  /**
+   * Rotates end state around the orbitCenter along the current longitude line.
+   * Stops at the poles to prevent object from being upside down.
+   * @param phi angle
+   */
   rotateUp = (phi: number) => (this.end.phi -= phi);
 
-  // Horizontal orbitCenter shift
+  /**
+   * Shifts the end state orbit center horizontally.
+   * @param delta Percentage by which the orbit center should be moved towards the edge of the screen.
+   * @param fov field of view of camera to calculate screen height at orbit center
+   */
   panLeft = (delta: number, fov: number) => {
-    // Half of the fov is center to top of screen.
     const step = 2 * Math.tan(fov * DEG2RAD * 0.5) * this.now.distance;
     this.end.orbitCenter.addScaledVector(this.now.right, -delta * step);
   };
 
-  // Vertical orbitCenter shift
+  /**
+   * Shifts the end state orbit center vertically.
+   * @param delta Percentage by which the orbit center should be moved towards the edge of the screen.
+   * @param fov field of view of camera to calculate screen height at orbit center
+   */
   panUp = (delta: number, fov: number) => {
-    // Half of the fov is center to top of screen.
     const step = 2 * Math.tan(fov * DEG2RAD * 0.5) * this.now.distance;
     this.end.orbitCenter.addScaledVector(this.now.tangent, -delta * step);
   };
 
   // ==================== U P D A T E
 
+  /**
+   * Fast-forwards to the end state by copying it to the now state.
+   * All angles are normalized to ensure state unambiguity.
+   */
   jumpToEnd = () => {
     this.end.normalize();
     this.now.orbitCenter.copy(this.end.orbitCenter);
@@ -102,6 +138,10 @@ export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
     this.now.distance = this.end.distance;
   };
 
+  /**
+   * Copies the now state to the end state.
+   * All angles are normalized to ensure state unambiguity.
+   */
   discardEnd = () => {
     this.now.normalize();
     this.end.orbitCenter.copy(this.now.orbitCenter);
@@ -110,7 +150,10 @@ export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
     this.end.distance = this.now.distance;
   };
 
-  // Returns if more updates are needed to reach the end state
+  /**
+   * Smooth damps the now state towards the end state.
+   * @returns if another update is needed for the now state to reach the end state
+   */
   update = (smoothTime: number, deltaTime: number) => {
     let needsUpdate = false;
     // OrbitCenter
@@ -195,6 +238,11 @@ export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
   };
 }
 
+/**
+ * Models the current object state as orbit center, up vector and spherical.
+ * The vertical rotation is limited to the range [EPS, PI - EPS] to prevent the object from being upside down.
+ * The horizontal rotation is only incremental during an interaction and is normalized to the range [0, 2 * PI[ when idle.
+ */
 class OrbitState extends ControlState {
   private spherical = new Spherical();
 
@@ -213,7 +261,10 @@ class OrbitState extends ControlState {
     this.fromYToUp.copy(this.fromUpToY).invert();
   }
 
-  // Sets theta to range [0, 2*PI] and phi to range [EPS, PI - EPS]
+  /**
+   * Sets theta to range [0, 2*PI[ and phi to range [EPS, PI - EPS]
+   * @returns this
+   */
   normalize = () => {
     this.theta = euclideanModulo(this.theta, Math.PI * 2);
     this.spherical.makeSafe();
@@ -222,24 +273,39 @@ class OrbitState extends ControlState {
 
   // ==================== G E T T E R
 
+  /**
+   * @returns position relative to orbit center
+   */
   get offset(): Vector3 {
     const offset = this._offset.setFromSpherical(this.spherical);
     offset.applyQuaternion(this.fromYToUp);
     return offset;
   }
 
+  /**
+   * @returns distance from orbit center
+   */
   get distance(): number {
     return this.spherical.radius;
   }
 
-  get theta() {
+  /**
+   * @returns horizontal rotation around up vector
+   */
+  get theta(): number {
     return this.spherical.theta;
   }
 
-  get phi() {
+  /**
+   * @returns vertical rotation around right vector
+   */
+  get phi(): number {
     return this.spherical.phi;
   }
 
+  /**
+   * @returns object rotation
+   */
   get orientation(): Quaternion {
     const rotation = this.reuseMatrix
       .identity()
@@ -247,26 +313,41 @@ class OrbitState extends ControlState {
     return this._orientation.setFromRotationMatrix(rotation);
   }
 
+  /**
+   * @returns right direction
+   */
   get right(): Vector3 {
     return this._right.crossVectors(this.forward, this.up);
   }
 
+  /**
+   * @returns up direction
+   */
   get up(): Vector3 {
     return this._up;
   }
 
+  /**
+   * @returns viewing direction
+   */
   get forward(): Vector3 {
     return this._forward.copy(this.offset).normalize().negate();
   }
 
-  // Local "up" dependent on actual position
+  /**
+   * @returns local "up" dependent on actual position; orthogonal to right and viewing directions
+   */
   get tangent(): Vector3 {
     return this._tangent.crossVectors(this.right, this.forward);
   }
 
   // ==================== S E T T E R
 
-  // Maintains full horizontal turns
+  /**
+   * Resets the spherical to stores a new offset.
+   * Takes the up vector into account and maintains full horizontal turns.
+   * @param to new offset
+   */
   set offset(to: Vector3) {
     if (approxEqualVec3(this.offset, to)) return;
     if (approxZeroVec3(to)) {
@@ -284,19 +365,37 @@ class OrbitState extends ControlState {
     }
   }
 
+  /**
+   * Sets the distance to the orbit center.
+   * Prevents the distance from being 0 or less.
+   * @param v new distance
+   */
   set distance(v: number) {
     this.spherical.radius = Math.max(EPSILON, v);
   }
 
+  /**
+   * Sets horizontal rotation around up vector
+   * @param v new angle
+   */
   set theta(v: number) {
     this.spherical.theta = v;
   }
 
+  /**
+   * Sets vertical rotation around right vector
+   * Prevents the angle from being out of the range [EPS, PI - EPS]
+   * @param v new angle
+   */
   set phi(v: number) {
     this.spherical.phi = v;
     this.spherical.makeSafe();
   }
 
+  /**
+   * Resets the up vector and updates the spherical position to maintain offset.
+   * @param v new up vector
+   */
   set up(v: Vector3Like) {
     if (approxEqualVec3(this.up, v)) return;
     const offset = this.offset;
@@ -306,31 +405,53 @@ class OrbitState extends ControlState {
     this.offset = offset;
   }
 
-  // Update spherical to maintain orbitCenter
+  /**
+   * Updates the position.
+   * The orbit center is maintained and the object rotation is updated to look at the orbit center.
+   * @param to new position
+   */
   setPosition = (to: Vector3Like) => {
     this.offset = new Vector3().subVectors(to, this.orbitCenter);
   };
 
-  // Update forward to maintain camera position
+  /**
+   * Updates the orbit center.
+   * To maintain the camera position the offset is updated.
+   * As object center and viewing direction are not handled seperatly, this changes the object rotation.
+   * @param to new orbit center
+   */
   setOrbitCenter = (to: Vector3Like) => {
     if (approxEqualVec3(this.orbitCenter, to)) return;
     this.offset = this.position.clone().sub(to);
     this.orbitCenter.copy(to);
   };
 
-  // Updates orbitCenter, because OrbitState specifies view direction as negative offset direction
-  // TODO: Maybe this should maintain the distance and only reset the orbitCenter to a point before or behind target.
-  lookAt = (target: Vector3Like) => this.setOrbitCenter(target);
+  /**
+   * Updates the rotation to look in the direction of a certain point in the object space.
+   * As object center and viewing direction are not handled seperatly, this changes the orbit center. The distance is maintained.
+   * @param target where the object should look
+   */
+  lookAt = (target: Vector3Like) => {
+    const position = this.position;
+    const offset = position.clone().sub(target).setLength(this.distance);
+    const orbitCenter = position.clone().sub(offset);
+    this.setOrbitCenter(orbitCenter);
+  };
 
   // ==================== S A V E   S T A T E
 
-  // As OrbitState specifies forward as inverse offset, forward is ignored, except offset is zero.
-  loadState = (state: CameraSaveState) => {
+  /**
+   * Resets this state based on a SaveState.
+   * As OrbitState specifies forward as inverse offset, forward is ignored, except offset is zero.
+   * @param state the SaveState to be loaded
+   * @returns this
+   */
+  loadState = (state: SaveState) => {
     this.orbitCenter.copy(state.orbitCenter);
     this.up = state.up;
     this.offset = approxZeroVec3(state.offset)
-      ? state.offset.clone()
-      : state.forward.clone().negate().setLength(EPSILON);
+      ? state.forward.clone().negate().setLength(EPSILON)
+      : state.offset.clone();
     this.normalize();
     return this;
   };
