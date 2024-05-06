@@ -37,6 +37,7 @@ export abstract class InteractionHandler {
    * Start listening to user interaction.
    */
   enable = () => {
+    if (this.enabled) return;
     this.onEnable();
     this.startListeningToUser();
     this.enabled = true;
@@ -46,6 +47,7 @@ export abstract class InteractionHandler {
    * End listening to user interaction.
    */
   disable = () => {
+    if (!this.enabled) return;
     this.enabled = false;
     this.stopListeningToUser();
     this.onDisable();
