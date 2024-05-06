@@ -18,10 +18,6 @@ addLights();
 addSphere(3, "skyblue", 5);
 addAxisHelper(9);
 
-// Erstelle ein Clipping-Plane
-const clippingPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 5);
-renderer.clippingPlanes.push(clippingPlane);
-
 startListeningOnResize(() => (controls.needsUpdate = true));
 startAnimating();
 render();
