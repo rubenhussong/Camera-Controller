@@ -58,28 +58,16 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
   // ==================== S E T T E R
 
   /**
-   * Calculates end state position and rotation from camera position relatively to the orbitCenter.
-   * Sets end state lookUpAngle as angle between inverse offset and view direction.
-   * Maintains orbit center.
+   * Sets end state offset quaternion based on object quaternion.
+   * Updates the orbit center to maintain look up angle and distance.
    * @param o object, usually a camera
    */
-  // TODO: Update the orbitCenter to maintain the offset instead of recalculating it. Otherwise, this will trigger a repositioning of the camera if the distance limits are not met.
-  setFromObject = (c: Object3D) => {
-    this.end.distance = this.end.orbitCenter.distanceTo(c.position);
-    if (approxZero(this.end.distance)) {
-      this.end.offsetQuat.copy(c.quaternion);
-      this.end.lookUpAngle = EPSILON; // Shift camera back by EPSILON
-    }
-    const down = this.end.orbitCenter.clone().sub(c.position).normalize();
-    const forward = AXIS.Z.clone().negate().applyQuaternion(c.quaternion);
-    if (approxAntiparallel(forward, down)) {
-      const downRotation = new Quaternion().setFromAxisAngle(AXIS.X, Math.PI);
-      this.end.offsetQuat = c.quaternion.clone().multiply(downRotation);
-    } else if (!approxParallel(forward, down)) {
-      const downRotation = new Quaternion().setFromUnitVectors(forward, down);
-      this.end.offsetQuat = c.quaternion.clone().premultiply(downRotation);
-    }
-    this.end.lookUpAngle = down.angleTo(forward);
+  setFromObject = (o: Object3D) => {
+    this.end.offsetQuat
+      .setFromAxisAngle(AXIS.X, this.end.lookUpAngle)
+      .invert()
+      .premultiply(o.quaternion);
+    this.end.orbitCenter.subVectors(o.position, this.end.offset);
   };
 
   // ==================== T R A N S F O R M

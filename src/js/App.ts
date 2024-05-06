@@ -7,12 +7,13 @@ import { EPSILON } from "./controls/utils/mathUtils";
 const stats = createStats();
 const renderer = createRenderer();
 
-const camera = createPerspectiveCamera(0, 0, 10);
+const camera = createPerspectiveCamera(0, 0, 1);
 const controls = new OrbitXControls(renderer.domElement, camera, "grounded");
-controls.setOrbitCenter({ x: 0, y: 0, z: 0 });
-controls.minDistance.grounded = 10;
-controls.maxDistance.grounded = 15;
-controls.lookAt({ x: 0, y: 100, z: 0 });
+//controls.setOrbitCenter({ x: 0, y: 0, z: 0 });
+//controls.minDistance.grounded = 10;
+//controls.maxDistance.grounded = 15;
+//controls.lookAt({ x: 0, y: 100, z: 0 });
+
 // controls.setPosition({ x: 10, y: 10, z: 0 });
 // controls.loadState({
 //   orbitCenter: new THREE.Vector3(0, 0, 0),
@@ -23,8 +24,8 @@ controls.lookAt({ x: 0, y: 100, z: 0 });
 
 const scene = new THREE.Scene();
 addLights();
-// addAxisHelper(9);
-addSphere(9.9, "beige");
+addAxisHelper(9);
+// addSphere(9.9, "beige");
 // addSphere(4, "skyblue");
 
 startListeningOnResize(() => (controls.needsUpdate = true));
