@@ -20,7 +20,6 @@ import {
   approxEqualQuat,
   approxEqualVec3,
   approxParallel,
-  approxZero,
   approxZeroVec3,
 } from "../utils/mathUtils";
 import { SmoothDamper } from "../utils/SmoothDamper";
@@ -48,9 +47,9 @@ export class GroundedInterpolator extends ControlStateInterpolator<GroundedState
   // ===== Helper Variables
   private reuseQuat = new Quaternion();
 
-  constructor(camera?: Object3D, orbitCenter?: Vector3Like) {
+  constructor(object?: Object3D, orbitCenter?: Vector3Like) {
     super();
-    camera && this.setFromObject(camera);
+    object && this.setFromObject(object);
     orbitCenter && this.setOrbitCenter(orbitCenter);
     this.jumpToEnd();
   }

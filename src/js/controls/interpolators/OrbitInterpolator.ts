@@ -39,9 +39,9 @@ export class OrbitInterpolator extends ControlStateInterpolator<OrbitState> {
   // ===== Helper Variables
   private reuseVec = new Vector3();
 
-  constructor(camera?: Object3D, orbitCenter?: Vector3Like) {
+  constructor(object?: Object3D, orbitCenter?: Vector3Like) {
     super();
-    camera && this.setFromObject(camera);
+    object && this.setFromObject(object);
     orbitCenter && this.setOrbitCenter(orbitCenter);
     this.jumpToEnd();
   }

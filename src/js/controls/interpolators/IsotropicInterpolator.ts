@@ -35,9 +35,9 @@ export class IsotropicInterpolator extends ControlStateInterpolator<IsotropicSta
   // ===== Helper Variables
   private reuseQuat = new Quaternion();
 
-  constructor(camera?: Object3D, orbitCenter?: Vector3Like) {
+  constructor(object?: Object3D, orbitCenter?: Vector3Like) {
     super();
-    camera && this.setFromObject(camera);
+    object && this.setFromObject(object);
     orbitCenter && this.setOrbitCenter(orbitCenter);
     this.jumpToEnd();
   }
@@ -294,9 +294,8 @@ class IsotropicState extends ControlState {
     if (approxEqualVec3(to, this.position)) return;
     this.distance = this.orbitCenter.distanceTo(to);
     if (approxZero(this.distance)) return;
-    const newForward = new Vector3().copy(to).sub(this.orbitCenter).normalize();
-    const oldForward = this.forward;
-    const rot = new Quaternion().setFromUnitVectors(oldForward, newForward);
+    const newForward = this.orbitCenter.clone().sub(to).normalize();
+    const rot = new Quaternion().setFromUnitVectors(this.forward, newForward);
     this.quaternion.premultiply(rot);
   };
 
